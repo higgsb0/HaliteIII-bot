@@ -24,7 +24,7 @@ def get_halite_cells(map, me):
     full_coord = [map[Position(j, i)] for i in range(0, map.height) for j in range(0, map.width)]
     shipyard = me.shipyard.position
     full_coord.remove(map[shipyard])
-    full_coord.sort(key=lambda x: x.halite_amount / 2 / map.calculate_distance(shipyard, x.position), reverse=False)
+    full_coord.sort(key=lambda x: x.halite_amount / 1.05 ** map.calculate_distance(shipyard, x.position), reverse=False)
     # TODO: take into account that not all halite can be extracted from the cell.
     # TODO: add discount factor for turn
     #full_coord.sort(key=lambda x: (x.halite_amount - get_path_halite_cost(shipyard, x.position, map))
@@ -167,6 +167,7 @@ while True:
     ship_nextpos = {}  # Possible moves (unsafe)
     tplus_occupied = {}
     nextpos_ship = defaultdict(list)  # Possible moves
+    big_graph = {}
 
     # 0. Setting targets
     logging.info("#0 Setting targets...")
