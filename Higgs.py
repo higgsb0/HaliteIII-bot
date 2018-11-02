@@ -94,12 +94,11 @@ def execute_path(path, command_dict, game_map):
     for ship in ships:
         if ship:
             game_map[ship.position].ship = None
-            logging.info("Marked cell {}, ship = None".format(game_map[ship.position].ship))
 
     moves = [m for pos, m in path]
     for ship, move in zip(ships, moves):
         logging.info('{}{}'.format(ship, move))
-        if ship and ship.id not in command_dict.keys():
+        if ship and ship.id not in command_dict.keys():  # TODO: (allow override if it's better)
             new_pos = ship.position.directional_offset(move)
             logging.info("Ship {} will move {} to {}".format(ship.id, move, new_pos))
             command_dict[ship.id] = ship.move(move)
@@ -107,37 +106,43 @@ def execute_path(path, command_dict, game_map):
 
 
 def resolve_moves_recursive(path, ship_id, graph, command_dict, game_map):
-    ship_plan = graph[ship_id]
+    if ship_id in command_dict.keys():
+        return True  # ship has planned move already
 
+    ship_plan = graph[ship_id]
     for t_pos, t_move in ship_plan.to:
         if not game_map[t_pos].is_occupied:
             # Path viable
             path.append((t_pos, t_move))
             logging.info("Path found: {}".format(path))
             execute_path(path, command_dict, game_map)
-            return
-        else:
-            if game_map[t_pos].ship.id in command_dict.keys():
-                return  # path is being used next turn (rmb reg move will clear cell so should hit line 138)
+            return True
 
-            if pos_to_hash_key(t_pos) in [pos_to_hash_key(p[0]) for p in path]:
-                # encountered cycle, execute the cycle only, scrap the remaining chain
-                logging.info("original path {}".format(path))
-                path.append((t_pos, t_move))
-                logging.info("appending {} and {} as the last step of path".format(t_pos, t_move))
-                cycle_start_idx = next(i for i, p in enumerate(path) if pos_to_hash_key(p[0]) == pos_to_hash_key(t_pos))
-                for x in range(0, cycle_start_idx + 1):
-                    path.pop(0)
-                    logging.info("popped at{}".format(x))
-                logging.info("Cyclic Path found: {}".format(path))
-                execute_path(path, command_dict, game_map)
-                return
-            else:
-                # keep searching, DFSs
-                next_ship_id = game_map[t_pos].ship.id
-                new_path = path.copy()
-                new_path.append((t_pos, t_move))
-                resolve_moves_recursive(new_path, next_ship_id, graph, command_dict, game_map)
+    # Hacking to ensure we use free cells first
+    for t_pos, t_move in ship_plan.to:
+        if game_map[t_pos].ship.id in command_dict.keys():
+            return False  # path is being used next turn (rmb reg move will clear cell so should hit line 138)
+
+        if pos_to_hash_key(t_pos) in [pos_to_hash_key(p[0]) for p in path]:
+            # encountered cycle, execute the cycle only, scrap the remaining chain
+            logging.info("original path {}".format(path))
+            path.append((t_pos, t_move))
+            logging.info("appending {} and {} as the last step of path".format(t_pos, t_move))
+            cycle_start_idx = next(i for i, p in enumerate(path) if pos_to_hash_key(p[0]) == pos_to_hash_key(t_pos))
+            for x in range(0, cycle_start_idx + 1):
+                path.pop(0)
+                logging.info("popped at{}".format(x))
+            logging.info("Cyclic Path found: {}".format(path))
+            execute_path(path, command_dict, game_map)
+            return True
+        else:
+            # keep searching, DFSs
+            next_ship_id = game_map[t_pos].ship.id
+            new_path = path.copy()
+            new_path.append((t_pos, t_move))
+            found = resolve_moves_recursive(new_path, next_ship_id, graph, command_dict, game_map)
+            if found:
+                return True
 
 
 def register_move(ship, move, command_dict, game_map):
