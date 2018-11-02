@@ -206,7 +206,7 @@ while True:
                 logging.info("Ship {} can go {} to {}".format(ship.id, m, ship.position.directional_offset(m)))
             else:
                 # (try to) crash enemy ship if it has more halite than us
-                if game_map[p].ship.halite_amount > ship.halite_amount:
+                if game_map[p].ship.halite_amount > ship.halite_amount or p == me.shipyard.position:
                     logging.info("Ship {} has found an enemy ship to crash!")
                     register_move(ship, m, command_dict, game_map)
                     if pos_to_hash_key(p) in nextpos_ship.keys():
@@ -242,7 +242,7 @@ while True:
         command_queue.append(v)
 
     if game.turn_number <= (MAX_TURN - 200) and me.halite_amount >= constants.SHIP_COST and \
-            not game_map[me.shipyard].is_occupied and len(me.get_ships()) < 10:
+            not game_map[me.shipyard].is_occupied and len(me.get_ships()) < 15:
         command_queue.append(me.shipyard.spawn())
 
     # Send your moves back to the game environment, ending this turn.
