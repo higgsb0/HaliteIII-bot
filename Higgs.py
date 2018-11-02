@@ -171,16 +171,19 @@ while True:
     for ship in me.get_ships():
         # logging.info("Ship {} at {} has {} halite.".format(ship.id, ship.position, ship.halite_amount))
         # TODO: set condition to create new drop point
-        # TODO: set colliding final drop off
         # TODO: try harassing late game.
-        if game.turn_number == MAX_TURN - 35:  # it's late, ask everyone to come home
-           ship_targets[ship.id] = me.shipyard.position
-
         if ship.id not in ship_targets:  # new ship - set navigation direction
             ship_targets[ship.id] = targets.pop()
+        dist = game_map.calculate_distance(ship.position, me.shipyard.position)
+        if MAX_TURN - game.turn_number - 10 < dist:
+            # it's late, ask everyone to come home
+            ship_targets[ship.id] = me.shipyard.position
+            if dist == 1:
+                move = game_map.get_unsafe_moves(ship.position, me.shipyard.position)[0]
+                register_move(ship, move, command_dict, game_map)
         elif ship.position == ship_targets[ship.id]:
             # reached target position
-            if ship_targets[ship.id] == me.shipyard.position:  # reached shipyard, assign new target
+            if ship.position == me.shipyard.position:  # reached shipyard, assign new target
                 ship_targets[ship.id] = targets.pop()
             else:  # reached halite deposit, back if position is depleted or ship full, else stay
                 if game_map[ship.position].halite_amount < constants.MAX_HALITE / 10 or ship.is_full:
