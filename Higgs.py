@@ -15,17 +15,22 @@ def get_path_halite_cost(start, end, map):
     # TODO: path should be optimised - direct isn't always the best, A*?
     while moves:
         cost += map[curr].halite_amount * .1
-        # quick hack, if choose lowest then shouldn't use naive_navigate
+        moves.sort(key=lambda m: map[curr.directional_offset(m)].halite_amount)
+        # assume we also travel along the path with least halite
         curr = map.normalize(curr.directional_offset(moves[0]))
         moves = map.get_unsafe_moves(curr, end)
-    return cost  # round-trip
+    return cost
 
 
 def get_halite_cells(map, dropoff, current_pos=None, radius=3):
     if current_pos is None:
         full_coord = [map[Position(j, i)] for i in range(0, map.height) for j in range(0, map.width)]
         full_coord.remove(map[dropoff])
-        full_coord.sort(key=lambda x: x.halite_amount / map.calculate_distance(dropoff, x.position), reverse=False)
+        # Remember multiplying constant should have no effect at all!
+        full_coord.sort(key=lambda x: x.halite_amount / 1.05**map.calculate_distance(dropoff, x.position), reverse=False)
+        # TODO: This takes ages to test.
+        #full_coord.sort(key=lambda x: (x.halite_amount - get_path_halite_cost(dropoff, x.position, map))
+        #                / map.calculate_distance(dropoff, x.position), reverse=False)
     else:
         full_coord = [map[game_map.normalize(Position(j, i))]
                       for i in range(current_pos.x - radius, current_pos.x + radius)
@@ -35,8 +40,7 @@ def get_halite_cells(map, dropoff, current_pos=None, radius=3):
         full_coord.sort(key=lambda x: x.halite_amount / map.calculate_distance(current_pos, x.position), reverse=False)
     # TODO: take into account that not all halite can be extracted from the cell.
     # TODO: add discount factor for turn
-    # full_coord.sort(key=lambda x: (x.halite_amount - get_path_halite_cost(shipyard, x.position, map))
-    #                              * .9 ** map.calculate_distance(shipyard, x.position), reverse=False)
+
     return full_coord
 
 
@@ -100,7 +104,7 @@ def execute_path(path, command_dict, game_map):
     moves = [m for pos, m in path]
     for ship, move in zip(ships, moves):
         logging.info('{}{}'.format(ship, move))
-        if ship and ship.id not in command_dict.keys():  # TODO: (allow override if it's better)
+        if ship and ship.id not in command_dict:  # TODO: (allow override if it's better)
             new_pos = ship.position.directional_offset(move)
             logging.info("Ship {} will move {} to {}".format(ship.id, move, new_pos))
             command_dict[ship.id] = ship.move(move)
@@ -108,7 +112,7 @@ def execute_path(path, command_dict, game_map):
 
 
 def resolve_moves_recursive(path, ship_id, graph, command_dict, game_map):
-    if ship_id in command_dict.keys():
+    if ship_id in command_dict:
         return True  # ship has planned move already
 
     ship_plan = graph[ship_id]
@@ -122,7 +126,7 @@ def resolve_moves_recursive(path, ship_id, graph, command_dict, game_map):
 
     # Hacking to ensure we use free cells first
     for t_pos, t_move in ship_plan.to:
-        if game_map[t_pos].ship.id in command_dict.keys():
+        if game_map[t_pos].ship.id in command_dict:
             return False  # path is being used next turn (rmb reg move will clear cell so should hit line 138)
 
         if pos_to_hash_key(t_pos) in [pos_to_hash_key(p[0]) for p in path]:
@@ -229,7 +233,7 @@ while True:
             p = ship.position.directional_offset(m)
             if not game_map[p].is_occupied:
                 register_move(ship, m, command_dict, game_map)
-                if pos_to_hash_key(p) in nextpos_ship.keys():
+                if pos_to_hash_key(p) in nextpos_ship:
                     del nextpos_ship[pos_to_hash_key(p)]
                 break
             elif game_map[p].ship.id in [s.id for s in me.get_ships()]:
@@ -242,11 +246,11 @@ while True:
                 if game_map[p].ship.halite_amount > ship.halite_amount or p == me.shipyard.position:
                     logging.info("Ship {} has found an enemy ship to crash!")
                     register_move(ship, m, command_dict, game_map)
-                    if pos_to_hash_key(p) in nextpos_ship.keys():
+                    if pos_to_hash_key(p) in nextpos_ship:
                         del nextpos_ship[pos_to_hash_key(p)]
                     break
 
-        if ship.id not in command_dict.keys():  # no free move
+        if ship.id not in command_dict:  # no free move
             pos_and_moves = [(ship.position.directional_offset(m), m) for m in possible_moves
                              if game_map[ship.position.directional_offset(m)].ship.id in
                              [s.id for s in me.get_ships()]]  # filter out enemy ships
@@ -265,7 +269,7 @@ while True:
                                                  pos_to_hash_key(x[1][1][0][0] if len(x[1][1]) > 0 else None)])))
     logging.info("graph_ordered dictionary (need to resolve){}".format(graph_ordered))
 
-    for key in graph_ordered.keys():
+    for key in graph_ordered:
         resolve_moves_recursive([], key, graph_ordered, command_dict, game_map)
 
     # 4. Remaining ships are blocked.
@@ -277,6 +281,7 @@ while True:
 
     if game.turn_number <= (MAX_TURN - 200) and me.halite_amount >= constants.SHIP_COST and \
             not game_map[me.shipyard].is_occupied and len(me.get_ships()) < 15:
+        # TODO: ship limit dependent on map size
         command_queue.append(me.shipyard.spawn())
 
     # Send your moves back to the game environment, ending this turn.
