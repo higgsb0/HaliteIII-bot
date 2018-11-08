@@ -27,7 +27,8 @@ def get_halite_cells(map, dropoff, current_pos=None, radius=3):
         full_coord = [map[Position(j, i)] for i in range(0, map.height) for j in range(0, map.width)]
         full_coord.remove(map[dropoff])
         # Remember multiplying constant should have no effect at all!
-        full_coord.sort(key=lambda x: x.halite_amount / 1.05**map.calculate_distance(dropoff, x.position), reverse=False)
+        # Discount factor seems to worsen the results..
+        full_coord.sort(key=lambda x: x.halite_amount / map.calculate_distance(dropoff, x.position), reverse=False)
         # TODO: This takes ages to test.
         #full_coord.sort(key=lambda x: (x.halite_amount - get_path_halite_cost(dropoff, x.position, map))
         #                / map.calculate_distance(dropoff, x.position), reverse=False)
