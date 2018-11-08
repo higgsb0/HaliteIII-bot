@@ -214,13 +214,6 @@ while True:
                     ship_targets[ship.id] = me.shipyard.position
             else:  # keep collecting
                 register_move(ship, Direction.Still, command_dict, game_map)
-        else:
-            if ship_targets[ship.id] != me.shipyard.position and \
-                    (game_map[ship_targets[ship.id]].halite_amount - game_map[ship.position].halite_amount) * \
-                    .25 < .4 * get_path_halite_cost(ship.position, ship_targets[ship.id], game_map):
-                # more beneficial to stay than travel
-                logging.info("Ship {} finds it more beneficial to stall for one round".format(ship.id))
-                register_move(ship, Direction.Still, command_dict, game_map)
 
         logging.info("Ship {} at {} has target {} ".format(ship.id, ship.position, ship_targets[ship.id]))
 
