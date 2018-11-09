@@ -45,6 +45,7 @@ def get_halite_cells(map, dropoff, current_pos=None, radius=3):
                       for j in range(current_pos.y - radius, current_pos.y + radius)]
         if map[current_pos] in full_coord:
             full_coord.remove(map[current_pos])
+        # TODO: distance/discount factor
         full_coord.sort(key=lambda x: x.halite_amount, reverse=False)
 
     return full_coord
@@ -242,8 +243,6 @@ while True:
                             logging.info('Ship {} finished collecting at {}, moving to nearby target {}'
                                          .format(ship.id, ship.position, new_target))
                             ship_targets[ship.id] = new_target
-                # TODO: test below
-                """
                 elif game.turn_number > 350 and game_map[ship.position].halite_amount > 100:
                     logging.info("LATE GAME: Ship {} stalling at {}".format(ship.id, ship.position))
                     register_move(ship, Direction.Still, command_dict, game_map)
@@ -252,7 +251,6 @@ while True:
                     # more beneficial to stay than travel
                     logging.info("Ship {} finds it more beneficial to stall for one round".format(ship.id))
                     register_move(ship, Direction.Still, command_dict, game_map)
-                """
         logging.info("Ship {} at {} has target {} ".format(ship.id, ship.position, ship_targets[ship.id]))
 
     # 1. Finding potential moves (has energy, will include blocked for resolution)
@@ -310,7 +308,7 @@ while True:
         command_queue.append(v)
 
     if game.turn_number <= (MAX_TURN - 200) and me.halite_amount >= constants.SHIP_COST and \
-            not game_map[me.shipyard].is_occupied and len(me.get_ships()) < 15:
+            not game_map[me.shipyard].is_occupied and len(me.get_ships()) < 25:
         # TODO: ship limit dependent on map size, useless in last test
         command_queue.append(me.shipyard.spawn())
 
