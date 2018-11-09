@@ -25,7 +25,7 @@ def get_path_halite_cost(start, end, map):
     return cost
 
 
-def get_halite_cells(map, dropoff, current_pos=None, radius=2):
+def get_halite_cells(map, dropoff, current_pos=None, radius=3):
     if current_pos is None:
         full_coord = [map[Position(j, i)] for i in range(0, map.height) for j in range(0, map.width)]
         full_coord.remove(map[dropoff])
