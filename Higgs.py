@@ -5,7 +5,10 @@ from hlt import constants
 from hlt.positionals import Direction, Position
 import logging
 from collections import defaultdict, OrderedDict, namedtuple
-#import numpy as np
+
+# import numpy as np
+
+global game
 
 
 def get_path_halite_cost(start, end, map):
@@ -22,25 +25,27 @@ def get_path_halite_cost(start, end, map):
     return cost
 
 
-def get_halite_cells(map, dropoff, current_pos=None, radius=3):
+def get_halite_cells(map, dropoff, current_pos=None, radius=2):
     if current_pos is None:
         full_coord = [map[Position(j, i)] for i in range(0, map.height) for j in range(0, map.width)]
         full_coord.remove(map[dropoff])
         # Remember multiplying constant should have no effect at all!
         # Discount factor seems to worsen the results..
-        full_coord.sort(key=lambda x: x.halite_amount / map.calculate_distance(dropoff, x.position), reverse=False)
-        # TODO: This takes ages to test.
-        #full_coord.sort(key=lambda x: (x.halite_amount - get_path_halite_cost(dropoff, x.position, map))
-        #                / map.calculate_distance(dropoff, x.position), reverse=False)
+        # if game.turn_number < 250:
+        #    full_coord.sort(key=lambda x: x.halite_amount * .97 ** (2 * map.calculate_distance(dropoff, x.position)), reverse=False)
+        # else:
+        full_coord.sort(key=lambda x: x.halite_amount / (map.calculate_distance(dropoff, x.position)),
+                        reverse=False)
+        # TODO: This doesn't quite work
+        # full_coord.sort(key=lambda x: (x.halite_amount - get_path_halite_cost(dropoff, x.position, map))
+        #                * .98 ** (2 * map.calculate_distance(dropoff, x.position)), reverse=False)
     else:
-        full_coord = [map[game_map.normalize(Position(j, i))]
+        full_coord = [map[game_map.normalize(Position(i, j))]
                       for i in range(current_pos.x - radius, current_pos.x + radius)
                       for j in range(current_pos.y - radius, current_pos.y + radius)]
         if map[current_pos] in full_coord:
             full_coord.remove(map[current_pos])
-        full_coord.sort(key=lambda x: x.halite_amount / map.calculate_distance(current_pos, x.position), reverse=False)
-    # TODO: take into account that not all halite can be extracted from the cell.
-    # TODO: add discount factor for turn
+        full_coord.sort(key=lambda x: x.halite_amount, reverse=False)
 
     return full_coord
 
@@ -54,32 +59,11 @@ def get_possible_moves(target, ship, game_map):
     # No need to normalize destination, since get_unsafe_moves does that
     if ship.halite_amount >= .1 * game_map[ship.position].halite_amount:
         possible_moves = game_map.get_unsafe_moves(ship.position, target)
-        # possible_moves = [m for m in possible_moves
-        #                  if game_map[ship.position.directional_offset(m)].ship is None or
-        #                  game_map[ship.position.directional_offset(m)].ship.id in me]
         possible_moves.sort(key=lambda x: game_map[ship.position.directional_offset(x)].halite_amount)
         return possible_moves
     else:
         logging.info("Ship {} has not enough halite to move anywhere.".format(ship.id))
         return []
-
-
-mapsize_turn = {
-    32: 401,
-    40: 426,
-    48: 451,
-    56: 476,
-    64: 501
-}
-
-ship_targets = {}  # Final goal of the ship
-
-game = hlt.Game()
-MAX_TURN = mapsize_turn[game.game_map.height]
-targets = [c.position for c in get_halite_cells(game.game_map, game.me.shipyard.position)]
-
-game.ready("Higgs")
-logging.info('Bot: Higgs.')
 
 
 def pos_to_hash_key(position):
@@ -160,6 +144,23 @@ def register_move(ship, move, command_dict, game_map):
     game_map[new_pos].mark_unsafe(ship)
 
 
+mapsize_turn = {
+    32: 401,
+    40: 426,
+    48: 451,
+    56: 476,
+    64: 501
+}
+
+ship_targets = {}  # Final goal of the ship
+
+game = hlt.Game()
+MAX_TURN = mapsize_turn[game.game_map.height]
+targets = [c.position for c in get_halite_cells(game.game_map, game.me.shipyard.position)]
+
+game.ready("Higgs")
+logging.info('Bot: Higgs.')
+
 ShipPlan = namedtuple('ShipPlan', 'ship to')
 
 while True:
@@ -195,15 +196,20 @@ while True:
             # reached target position
             if ship.position == me.shipyard.position:  # reached shipyard, assign new target
                 ship_targets[ship.id] = targets.pop()
-            elif ship.halite_amount > .95 * constants.MAX_HALITE:  # ship.is_full:
+            elif ship.is_full:
                 # TODO: find nearest drop point, get drop-offs
                 ship_targets[ship.id] = me.shipyard.position
-            elif game_map[ship.position].halite_amount < constants.MAX_HALITE / 10:
+            elif game_map[ship.position].halite_amount < 100: # TODO: if game.turn_number < 350 else 50):
                 new_targets = get_halite_cells(game_map, me.shipyard.position, ship.position)
                 new_target = new_targets.pop().position
                 dist_from_home = game_map.calculate_distance(ship.position, me.shipyard.position)
                 dist_from_target = game_map.calculate_distance(ship.position, new_target)
                 # If Halite/turn of going to nearby target > going back then go to new target
+                # TODO: test the below
+                # new_reward = ship.halite_amount + game_map[new_target].halite_amount - (100 if game.turn_number < 350 else 50) - \
+                #             get_path_halite_cost(ship.position, new_target, game_map)
+                # if (ship.halite_amount * .98 ** (dist_from_home if game.turn_number < 250 else 0) <
+                #        min(1000, new_reward) * .98 ** ((dist_from_home + dist_from_target) if game.turn_number < 250 else 0)):
                 if (ship.halite_amount / dist_from_home <
                         (game_map[new_target].halite_amount * .44 - get_path_halite_cost(ship.position, new_target, game_map))/
                         (dist_from_home + dist_from_target)):
@@ -214,7 +220,39 @@ while True:
                     ship_targets[ship.id] = me.shipyard.position
             else:  # keep collecting
                 register_move(ship, Direction.Still, command_dict, game_map)
-
+        else:
+            if ship.is_full:
+                ship_targets[ship.id] = me.shipyard.position
+            else:
+                # TODO: need to travel along paths with more H to benefit from late game stall
+                if ship_targets[ship.id] == me.shipyard.position:
+                    if game.turn_number > 350:
+                        logging.info("LATE GAME: Ship {} researching leftovers around{}".format(ship.id, ship.position))
+                        new_targets = get_halite_cells(game_map, me.shipyard.position, ship.position)
+                        new_target = new_targets.pop().position
+                        dist_from_home = game_map.calculate_distance(ship.position, me.shipyard.position)
+                        dist_from_target = game_map.calculate_distance(ship.position, new_target)
+                        # If Halite/turn of going to nearby target > going back then go to new target
+                        new_reward = ship.halite_amount + game_map[new_target].halite_amount - (
+                            100 if game.turn_number < 350 else 50) - \
+                                     get_path_halite_cost(ship.position, new_target, game_map)
+                        if (ship.halite_amount * .98 ** (dist_from_home if game.turn_number < 250 else 0) <
+                                min(1000, new_reward) * .98 ** (
+                                (dist_from_home + dist_from_target) if game.turn_number < 250 else 0)):
+                            logging.info('Ship {} finished collecting at {}, moving to nearby target {}'
+                                         .format(ship.id, ship.position, new_target))
+                            ship_targets[ship.id] = new_target
+                # TODO: test below
+                """
+                elif game.turn_number > 350 and game_map[ship.position].halite_amount > 100:
+                    logging.info("LATE GAME: Ship {} stalling at {}".format(ship.id, ship.position))
+                    register_move(ship, Direction.Still, command_dict, game_map)
+                elif (game_map[ship_targets[ship.id]].halite_amount - game_map[ship.position].halite_amount) * \
+                        .25 < .4 * get_path_halite_cost(ship.position, ship_targets[ship.id], game_map):
+                    # more beneficial to stay than travel
+                    logging.info("Ship {} finds it more beneficial to stall for one round".format(ship.id))
+                    register_move(ship, Direction.Still, command_dict, game_map)
+                """
         logging.info("Ship {} at {} has target {} ".format(ship.id, ship.position, ship_targets[ship.id]))
 
     # 1. Finding potential moves (has energy, will include blocked for resolution)
@@ -222,6 +260,10 @@ while True:
     logging.info("#1 Finding all potential moves...")
     for ship in me.get_ships():
         possible_moves = get_possible_moves(ship_targets[ship.id], ship, game_map)
+        if ship.position == me.shipyard.position and game.turn_number < 6:
+            possible_moves.extend([d for d in Direction.get_all_cardinals()
+                                   if d not in possible_moves
+                                   and not game_map[ship.position.directional_offset(d)].is_occupied])
 
         for m in possible_moves:
             p = ship.position.directional_offset(m)
@@ -251,23 +293,17 @@ while True:
             logging.info("Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
             graph[ship.id] = ShipPlan(ship, pos_and_moves)
 
-    # 2. Set Moves to free cells (unoccupied this turn, and only one ship is going next)
-    logging.info(graph)
-
-    # 3. Resolve possible collisions, starting from blocked cells
+    # 2. Resolve possible collisions, starting from blocked cells
     # then by cells targeted by only one ship, (sort by number of ships)
-    logging.info("#3 Resolving collisions...")
+    logging.info("#2 Resolving moves...")
     graph_ordered = OrderedDict(
         sorted(graph.items(), key=lambda x: (len(x[1][1]),
                                              target_count[
                                                  pos_to_hash_key(x[1][1][0][0] if len(x[1][1]) > 0 else None)])))
-    logging.info("graph_ordered dictionary (need to resolve){}".format(graph_ordered))
+    logging.info("graph_ordered dictionary {}".format(graph_ordered))
 
     for key in graph_ordered:
         resolve_moves_recursive([], key, graph_ordered, command_dict, game_map)
-
-    # 4. Remaining ships are blocked.
-    logging.info("#4 Register blocked ships...")
 
     # Queue up commands
     for k, v in command_dict.items():
@@ -275,7 +311,7 @@ while True:
 
     if game.turn_number <= (MAX_TURN - 200) and me.halite_amount >= constants.SHIP_COST and \
             not game_map[me.shipyard].is_occupied and len(me.get_ships()) < 15:
-        # TODO: ship limit dependent on map size
+        # TODO: ship limit dependent on map size, useless in last test
         command_queue.append(me.shipyard.spawn())
 
     # Send your moves back to the game environment, ending this turn.
