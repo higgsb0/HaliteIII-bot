@@ -246,7 +246,7 @@ while True:
                 dist_from_home = game_map.calculate_distance(ship.position, nearest_dropoff)
                 if surrounding_halite > 2000 and dist_from_home > 20 and \
                         len(me.get_dropoffs()) < 2 and ship_to_be_dropoff is None \
-                        and game.turn_number < 200:
+                        and game.turn_number <= (MAX_TURN - 200):
                     ship_to_be_dropoff = ship.id
                     if ship.id in ship_targets:
                         del ship_targets[ship.id]
@@ -254,14 +254,13 @@ while True:
                     continue
                 else:
                     ship_targets[ship.id] = get_nearest_dropoff(game_map, me, ship.position)
-            elif game_map[ship.position].halite_amount < 50:  # TODO: if game.turn_number < 350 else 50):
+            elif game_map[ship.position].halite_amount < 50:
                 new_targets = get_halite_cells_nearby(game_map, ship.position, descending=True)
                 new_target = next(t.position for t in new_targets if t.position not in ship_targets.values())
                 dist_from_home = game_map.calculate_distance(ship.position, nearest_dropoff)
                 dist_from_target = game_map.calculate_distance(ship.position, new_target)
                 # If Halite/turn of going to nearby target > going back then go to new target
-                new_reward = ship.halite_amount + game_map[new_target].halite_amount - (
-                    100 if game.turn_number < 350 else 50) - \
+                new_reward = ship.halite_amount + game_map[new_target].halite_amount - 50 - \
                              get_path_halite_cost(ship.position, new_target, game_map)
                 if (ship.halite_amount * .98 ** (dist_from_home if game.turn_number < 250 else 0) <
                         min(1000, new_reward) * .98 ** (
@@ -299,6 +298,10 @@ while True:
                 elif game.turn_number > 350 and game_map[ship.position].halite_amount > 100:
                     logging.info("LATE GAME: Ship {} stalling at {}".format(ship.id, ship.position))
                     register_move(ship, Direction.Still, command_dict, game_map)
+                elif game_map[ship_targets[ship.id]].halite_amount < 100:
+                    logging.info("Ship {}'s target at {} seems to have depleted, reassigning target"
+                                 .format(ship.id, ship_targets[ship.id]))
+                    ship_targets[ship.id] = targets.pop()
                 elif (game_map[ship_targets[ship.id]].halite_amount - game_map[ship.position].halite_amount) * \
                         .25 < .4 * get_path_halite_cost(ship.position, ship_targets[ship.id], game_map):
                     # more beneficial to stay than travel
