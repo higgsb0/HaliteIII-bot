@@ -25,28 +25,32 @@ def get_path_halite_cost(start, end, map):
     return cost
 
 
-def get_halite_cells(map, dropoff, current_pos=None, radius=3):
-    if current_pos is None:
-        full_coord = [map[Position(j, i)] for i in range(0, map.height) for j in range(0, map.width)]
-        full_coord.remove(map[dropoff])
-        # Remember multiplying constant should have no effect at all!
-        # Discount factor seems to worsen the results..
-        # if game.turn_number < 250:
-        #    full_coord.sort(key=lambda x: x.halite_amount * .97 ** (2 * map.calculate_distance(dropoff, x.position)), reverse=False)
-        # else:
-        full_coord.sort(key=lambda x: x.halite_amount / (map.calculate_distance(dropoff, x.position)),
-                        reverse=False)
-        # TODO: This doesn't quite work
-        # full_coord.sort(key=lambda x: (x.halite_amount - get_path_halite_cost(dropoff, x.position, map))
-        #                * .98 ** (2 * map.calculate_distance(dropoff, x.position)), reverse=False)
-    else:
-        full_coord = [map[game_map.normalize(Position(i, j))]
-                      for i in range(current_pos.x - radius, current_pos.x + radius)
-                      for j in range(current_pos.y - radius, current_pos.y + radius)]
-        if map[current_pos] in full_coord:
-            full_coord.remove(map[current_pos])
-        # TODO: distance/discount factor
-        full_coord.sort(key=lambda x: x.halite_amount, reverse=False)
+def get_halite_cells(map, dropoff):
+    full_coord = [map[Position(j, i)] for i in range(0, map.height) for j in range(0, map.width)]
+    full_coord.remove(map[dropoff])
+    # Remember multiplying constant should have no effect at all!
+    # Discount factor seems to worsen the results..
+    # if game.turn_number < 250:
+    #    full_coord.sort(key=lambda x: x.halite_amount * .97 ** (2 * map.calculate_distance(dropoff, x.position)), reverse=False)
+    # else:
+    full_coord.sort(key=lambda x: x.halite_amount / (map.calculate_distance(dropoff, x.position)),
+                    reverse=False)
+    # TODO: This doesn't quite work
+    # full_coord.sort(key=lambda x: (x.halite_amount - get_path_halite_cost(dropoff, x.position, map))
+    #                * .98 ** (2 * map.calculate_distance(dropoff, x.position)), reverse=False)
+    return full_coord
+
+
+def get_halite_cells_nearby(map, current_pos, radius=3):
+    full_coord = [map[game_map.normalize(Position(i, j))]
+                  for i in range(current_pos.x - radius, current_pos.x + radius)
+                  for j in range(current_pos.y - radius, current_pos.y + radius)]
+    if map[current_pos] in full_coord:
+        full_coord.remove(map[current_pos])
+    full_coord.sort(key=lambda x: x.halite_amount, reverse=False)
+    # TODO: distance/discount factor
+    # full_coord.sort(key=lambda x: x.halite_amount * .98 ** map.calculate_distance(current_pos, x.position),
+    #                reverse=False)
 
     return full_coord
 
@@ -201,8 +205,9 @@ while True:
                 # TODO: find nearest drop point, get drop-offs
                 ship_targets[ship.id] = me.shipyard.position
             elif game_map[ship.position].halite_amount < 100: # TODO: if game.turn_number < 350 else 50):
-                new_targets = get_halite_cells(game_map, me.shipyard.position, ship.position)
-                new_target = new_targets.pop().position
+                new_targets = get_halite_cells_nearby(game_map, ship.position)
+                new_targets.reverse()
+                new_target = next(t.position for t in new_targets if t.position not in ship_targets.values())
                 dist_from_home = game_map.calculate_distance(ship.position, me.shipyard.position)
                 dist_from_target = game_map.calculate_distance(ship.position, new_target)
                 # If Halite/turn of going to nearby target > going back then go to new target
@@ -227,16 +232,17 @@ while True:
             else:
                 # TODO: need to travel along paths with more H to benefit from late game stall
                 if ship_targets[ship.id] == me.shipyard.position:
-                    if game.turn_number > 350:
-                        logging.info("LATE GAME: Ship {} researching leftovers around{}".format(ship.id, ship.position))
-                        new_targets = get_halite_cells(game_map, me.shipyard.position, ship.position)
-                        new_target = new_targets.pop().position
+                    if ship.halite_amount < constants.MAX_HALITE * .7 and game.turn_number > 100:
+                        logging.info("Mid game: Ship {} researching leftovers around{}".format(ship.id, ship.position))
+                        new_targets = get_halite_cells_nearby(game_map, ship.position)
+                        new_targets.reverse()
+                        new_target = next(t.position for t in new_targets if t.position not in ship_targets.values())
                         dist_from_home = game_map.calculate_distance(ship.position, me.shipyard.position)
                         dist_from_target = game_map.calculate_distance(ship.position, new_target)
                         # If Halite/turn of going to nearby target > going back then go to new target
                         new_reward = ship.halite_amount + game_map[new_target].halite_amount - (
                             100 if game.turn_number < 350 else 50) - \
-                                     get_path_halite_cost(ship.position, new_target, game_map)
+                            get_path_halite_cost(ship.position, new_target, game_map)
                         if (ship.halite_amount * .98 ** (dist_from_home if game.turn_number < 250 else 0) <
                                 min(1000, new_reward) * .98 ** (
                                 (dist_from_home + dist_from_target) if game.turn_number < 250 else 0)):
@@ -308,7 +314,7 @@ while True:
         command_queue.append(v)
 
     if game.turn_number <= (MAX_TURN - 200) and me.halite_amount >= constants.SHIP_COST and \
-            not game_map[me.shipyard].is_occupied and len(me.get_ships()) < 25:
+            not game_map[me.shipyard].is_occupied and len(me.get_ships()) < game_map.height/2:
         # TODO: ship limit dependent on map size, useless in last test
         command_queue.append(me.shipyard.spawn())
 
