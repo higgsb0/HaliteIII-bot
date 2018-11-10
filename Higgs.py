@@ -178,6 +178,14 @@ while True:
     command_queue = []
     command_dict = {}
     nextpos_ship = defaultdict(list)  # Possible moves
+
+    logging.info('Clearing targets of crashed ships')
+    if me.get_ships() is not None:
+        crashed_ships = [s_id for s_id in ship_targets if s_id not in [s.id for s in me.get_ships()]]
+        for cs in crashed_ships:
+            logging.info("Removing Ship {}".format(cs))
+            del ship_targets[cs]
+
     targets = [c.position for c in get_halite_cells(game.game_map, game.me.shipyard.position)
                if c.position not in ship_targets.values()]
 
@@ -246,7 +254,7 @@ while True:
                         if (ship.halite_amount * .98 ** (dist_from_home if game.turn_number < 250 else 0) <
                                 min(1000, new_reward) * .98 ** (
                                 (dist_from_home + dist_from_target) if game.turn_number < 250 else 0)):
-                            logging.info('Ship {} finished collecting at {}, moving to nearby target {}'
+                            logging.info('Ship {} altering its plan to nearby target {}'
                                          .format(ship.id, ship.position, new_target))
                             ship_targets[ship.id] = new_target
                 elif game.turn_number > 350 and game_map[ship.position].halite_amount > 100:
@@ -282,13 +290,23 @@ while True:
                 target_count[pos_to_hash_key(p)] += 1
                 logging.info("Ship {} can go {} to {}".format(ship.id, m, ship.position.directional_offset(m)))
             else:
-                # (try to) crash enemy ship if it has more halite than us
+                # (try to) crash enemy ship if it has more halite than us or occupying our shipyard
                 if game_map[p].ship.halite_amount > ship.halite_amount or p == me.shipyard.position:
                     logging.info("Ship {} has found an enemy ship to crash!")
                     register_move(ship, m, command_dict, game_map)
                     if pos_to_hash_key(p) in nextpos_ship:
                         del nextpos_ship[pos_to_hash_key(p)]
                     break
+                # TODO: doesn't work!
+                # else:
+                #     logging.info("Ship {} is fleeing from enemy!")
+                #     inv_m = Direction.invert(m)
+                #     inv_p = ship.position.directional_offset(inv_m)
+                #     if not game_map[inv_p].is_occupied:
+                #         register_move(ship, inv_m, command_dict, game_map)
+                #     if pos_to_hash_key(inv_p) in nextpos_ship:
+                #         del nextpos_ship[pos_to_hash_key(inv_p)]
+                #     break
 
         if ship.id not in command_dict:  # no free move
             pos_and_moves = [(ship.position.directional_offset(m), m) for m in possible_moves
