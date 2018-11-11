@@ -259,7 +259,8 @@ while True:
                 dist_from_home = game_map.calculate_distance(ship.position, nearest_dropoff)
                 dist_from_target = game_map.calculate_distance(ship.position, new_target)
                 # If Halite/turn of going to nearby target > going back then go to new target
-                new_reward = ship.halite_amount + game_map[new_target].halite_amount - 50 - \
+                new_reward = ship.halite_amount + game_map[new_target].halite_amount - (
+                    100 if game.turn_number < 350 else 50) - \
                              get_path_halite_cost(ship.position, new_target, game_map)
                 if (ship.halite_amount * .98 ** (dist_from_home if game.turn_number < 250 else 0) <
                         min(1000, new_reward) * .98 ** (
