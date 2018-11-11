@@ -191,6 +191,9 @@ logging.info('Bot: Higgs.')
 
 ShipPlan = namedtuple('ShipPlan', 'ship to')
 ship_to_be_dropoff = None
+is_4p = len(game.players) == 4
+
+logging.info(is_4p)
 
 while True:
     game.update_frame()
@@ -298,15 +301,17 @@ while True:
                 elif game.turn_number > 350 and game_map[ship.position].halite_amount > 100:
                     logging.info("LATE GAME: Ship {} stalling at {}".format(ship.id, ship.position))
                     register_move(ship, Direction.Still, command_dict, game_map)
-                elif game_map[ship_targets[ship.id]].halite_amount < 100:
-                    logging.info("Ship {}'s target at {} seems to have depleted, reassigning target"
+                elif game.turn_number < 250 and game_map[ship_targets[ship.id]].halite_amount < 100:
+                    # TODO: this can be more deterministic, maybe memorize what the target was, or even calc EV
+                    logging.info("Early game, Ship {}'s target at {} seems to have depleted, reassigning target"
                                  .format(ship.id, ship_targets[ship.id]))
                     ship_targets[ship.id] = targets.pop()
                 else:
                     # traveling to target, check if current cell is too occupied
-                    diff_target_current = game_map[ship_targets[ship.id]].halite_amount - game_map[ship.position].halite_amount
-                    if diff_target_current > 0 and diff_target_current * \
-                        .25 < .4 * get_path_halite_cost(ship.position, ship_targets[ship.id], game_map):
+                    #diff_target_current = game_map[ship_targets[ship.id]].halite_amount - game_map[ship.position].halite_amount
+                    #if diff_target_current > 0 and diff_target_current * \
+                    #    .25 < .4 * get_path_halite_cost(ship.position, ship_targets[ship.id], game_map):
+                    if game_map[ship.position].halite_amount > 500:
                         # more beneficial to stay than travel
                         logging.info("Ship {} finds it more beneficial to stall for one round".format(ship.id))
                         register_move(ship, Direction.Still, command_dict, game_map)
@@ -346,8 +351,10 @@ while True:
                 target_count[pos_to_hash_key(p)] += 1
                 logging.info("Ship {} can go {} to {}".format(ship.id, m, ship.position.directional_offset(m)))
             else:
-                # (try to) crash enemy ship if it has more halite than us or occupying our shipyard
-                if game_map[p].ship.halite_amount > ship.halite_amount or p in get_dropoff_positions(me):
+                if is_4p:
+                    continue  # not beneficial to crash in multi-players
+                elif game_map[p].ship.halite_amount > ship.halite_amount or p in get_dropoff_positions(me):
+                    # (try to) crash enemy ship if it has more halite than us or occupying our shipyard
                     logging.info("Ship {} has found an enemy ship to crash!")
                     register_move(ship, m, command_dict, game_map)
                     if pos_to_hash_key(p) in nextpos_ship:
