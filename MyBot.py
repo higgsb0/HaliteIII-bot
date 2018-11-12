@@ -186,6 +186,14 @@ mapsize_turn = {
     64: 501
 }
 
+ship_limit = {
+    32: 28,
+    40: 32,
+    48: 42,
+    56: 44,
+    64: 50
+}
+
 ship_targets = {}  # Final goal of the ship
 
 game = hlt.Game()
@@ -362,6 +370,7 @@ while True:
             else:
                 if (not is_4p and game_map[p].ship.halite_amount > ship.halite_amount) \
                         or p in get_dropoff_positions(me):
+                    # TODO: crash any enemy ship within 2 units of radius around drop-off
                     # (try to) crash enemy ship if it has more halite than us or occupying our shipyard
                     logging.info("Ship {} has found an enemy ship to crash!")
                     register_move(ship, m, command_dict, game_map)
@@ -405,7 +414,7 @@ while True:
     if game.turn_number <= (MAX_TURN - 200) and \
             me.halite_amount - (4000 if building_dropoff else 0) >= constants.SHIP_COST and \
             not game_map[me.shipyard].is_occupied and ship_to_be_dropoff is None \
-            and len(me.get_ships()) < game_map.height / 1.5:
+            and len(me.get_ships()) < ship_limit[game_map.height]:
         # TODO: ship limit dependent on halite available on the maps
         command_queue.append(me.shipyard.spawn())
 
