@@ -67,6 +67,12 @@ def get_surrounding_halite(map, current_pos, radius=6):
     return total
 
 
+def get_unextracted_halite(game_map):
+    cells = [game_map[Position(j, i)] for i in range(0, game_map.height) for j in range(0, game_map.width)]
+    total = sum([c.halite_amount for c in cells])
+    return total
+
+
 def get_target_direction(source, target):
     return (Direction.South if target.y > source.y else Direction.North if target.y < source.y else None,
             Direction.East if target.x > source.x else Direction.West if target.x < source.x else None)
@@ -206,6 +212,9 @@ while True:
     command_dict = {}
     nextpos_ship = defaultdict(list)  # Possible moves
     building_dropoff = False
+    remaining_halite = get_unextracted_halite(game_map)
+    mean_halite = remaining_halite / game_map.height / game_map.height
+    logging.info("Remaining halite: {}, ({} on average)".format(remaining_halite, mean_halite))
 
     logging.info('Clearing targets of crashed ships')
     if me.get_ships() is not None:
@@ -246,7 +255,7 @@ while True:
             dist_from_home = game_map.calculate_distance(ship.position, nearest_dropoff)
             if surrounding_halite > 3500 and dist_from_home > 20 and \
                     len(me.get_dropoffs()) < 1 and ship_to_be_dropoff is None \
-                    and game.turn_number <= (MAX_TURN - 250):
+                    and len(me.get_ships()) > 10 and game.turn_number <= (MAX_TURN - 250):
                 ship_to_be_dropoff = ship.id
                 if ship.id in ship_targets:
                     del ship_targets[ship.id]
@@ -257,7 +266,7 @@ while True:
             elif ship.is_full:
                 ship_targets[ship.id] = get_nearest_dropoff(game_map, me, ship.position)
             elif game_map[ship.position].halite_amount < 50:
-                new_targets = get_halite_cells_nearby(game_map, ship.position, descending=True)
+                new_targets = get_halite_cells_nearby(game_map, ship.position, radius=3, descending=True)
                 new_target = next(t.position for t in new_targets if t.position not in ship_targets.values())
                 dist_from_home = game_map.calculate_distance(ship.position, nearest_dropoff)
                 dist_from_target = game_map.calculate_distance(ship.position, new_target)
@@ -283,7 +292,7 @@ while True:
                     if ship.halite_amount < constants.MAX_HALITE * .7 and game.turn_number > 100:
                         # TODO: refactor this part, used above
                         logging.info("Mid game: Ship {} researching leftovers around{}".format(ship.id, ship.position))
-                        new_targets = get_halite_cells_nearby(game_map, ship.position, descending=True)
+                        new_targets = get_halite_cells_nearby(game_map, ship.position, radius=3, descending=True)
                         new_target = next(t.position for t in new_targets if t.position not in ship_targets.values())
                         dist_from_home = game_map.calculate_distance(ship.position, nearest_dropoff)
                         dist_from_target = game_map.calculate_distance(ship.position, new_target)
@@ -298,7 +307,7 @@ while True:
                                          .format(ship.id, ship.position, new_target))
                             ship_targets[ship.id] = new_target
                             # TODO: can have infinite recursion
-                elif game.turn_number > 350 and game_map[ship.position].halite_amount > 100:
+                elif game.turn_number > 350 and game_map[ship.position].halite_amount > 100: # 1.2 * mean_halite:
                     logging.info("LATE GAME: Ship {} stalling at {}".format(ship.id, ship.position))
                     register_move(ship, Direction.Still, command_dict, game_map)
                 elif game.turn_number < 250 and game_map[ship_targets[ship.id]].halite_amount < 100:
@@ -351,9 +360,8 @@ while True:
                 target_count[pos_to_hash_key(p)] += 1
                 logging.info("Ship {} can go {} to {}".format(ship.id, m, ship.position.directional_offset(m)))
             else:
-                if is_4p:
-                    continue  # not beneficial to crash in multi-players
-                elif game_map[p].ship.halite_amount > ship.halite_amount or p in get_dropoff_positions(me):
+                if (not is_4p and game_map[p].ship.halite_amount > ship.halite_amount) \
+                        or p in get_dropoff_positions(me):
                     # (try to) crash enemy ship if it has more halite than us or occupying our shipyard
                     logging.info("Ship {} has found an enemy ship to crash!")
                     register_move(ship, m, command_dict, game_map)
@@ -397,7 +405,7 @@ while True:
     if game.turn_number <= (MAX_TURN - 200) and \
             me.halite_amount - (4000 if building_dropoff else 0) >= constants.SHIP_COST and \
             not game_map[me.shipyard].is_occupied and ship_to_be_dropoff is None \
-            and len(me.get_ships()) < game_map.height / 2:
+            and len(me.get_ships()) < game_map.height / 1.5:
         # TODO: ship limit dependent on halite available on the maps
         command_queue.append(me.shipyard.spawn())
 
