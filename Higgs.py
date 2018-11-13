@@ -58,11 +58,15 @@ def get_halite_cells_nearby(map, current_pos, radius=3, descending=False):
     return full_coord
 
 
-def get_surrounding_halite(map, current_pos, radius=6):
-    coords = [map[game_map.normalize(Position(i, j))]
+def get_surrounding_cells(game_map, current_pos, radius):
+    coords = [game_map[game_map.normalize(Position(i, j))]
               for i in range(current_pos.x - radius, current_pos.x + radius)
               for j in range(current_pos.y - radius, current_pos.y + radius)]
+    return coords
 
+
+def get_surrounding_halite(game_map, current_pos, radius=6):
+    coords = get_surrounding_cells(game_map, current_pos, radius)
     total = sum([c.halite_amount for c in coords])
     return total
 
@@ -368,9 +372,9 @@ while True:
                 target_count[pos_to_hash_key(p)] += 1
                 logging.info("Ship {} can go {} to {}".format(ship.id, m, ship.position.directional_offset(m)))
             else:
+                dropoff_areas = [get_surrounding_cells(game_map, dropoff, 2) for dropoff in get_dropoff_positions(me)]
                 if (not is_4p and game_map[p].ship.halite_amount > ship.halite_amount) \
-                        or p in get_dropoff_positions(me):
-                    # TODO: crash any enemy ship within 2 units of radius around drop-off
+                        or p in [cell.position for dropoff_area in dropoff_areas for cell in dropoff_area]:
                     # (try to) crash enemy ship if it has more halite than us or occupying our shipyard
                     logging.info("Ship {} has found an enemy ship to crash!")
                     register_move(ship, m, command_dict, game_map)
