@@ -44,24 +44,21 @@ def get_halite_cells(map, me, descending=False):
     return full_coord
 
 
-def get_halite_cells_nearby(map, current_pos, radius=3, descending=False):
-    full_coord = [map[game_map.normalize(Position(i, j))]
-                  for i in range(current_pos.x - radius, current_pos.x + radius)
-                  for j in range(current_pos.y - radius, current_pos.y + radius)]
-    # if map[current_pos] in full_coord:
-    #    full_coord.remove(map[current_pos])
-    full_coord.sort(key=lambda x: x.halite_amount, reverse=descending)
-    # TODO: distance/discount factor
-    # full_coord.sort(key=lambda x: x.halite_amount * .98 ** map.calculate_distance(current_pos, x.position),
-    #                reverse=False)
-
-    return full_coord
-
-
 def get_surrounding_cells(game_map, current_pos, radius):
     coords = [game_map[game_map.normalize(Position(i, j))]
               for i in range(current_pos.x - radius, current_pos.x + radius)
               for j in range(current_pos.y - radius, current_pos.y + radius)]
+    return coords
+
+
+def get_halite_cells_nearby(game_map, current_pos, radius=3, descending=False):
+    coords = get_surrounding_cells(game_map, current_pos, radius)
+    # if map[current_pos] in full_coord:
+    #    full_coord.remove(map[current_pos])
+    coords.sort(key=lambda x: x.halite_amount, reverse=descending)
+    # TODO: distance/discount factor
+    # full_coord.sort(key=lambda x: x.halite_amount * .98 ** map.calculate_distance(current_pos, x.position),
+    #                reverse=False)
     return coords
 
 
@@ -102,6 +99,26 @@ def get_dropoff_positions(me):
 def get_nearest_dropoff(map, me, position):
     dropoffs = sorted(get_dropoff_positions(me), key=lambda x: map.calculate_distance(position, x))
     return dropoffs[0]
+
+
+def try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets):
+    logging.info("Ship {} searching nearby targets around {}".format(ship.id, ship.position))
+    new_targets = get_halite_cells_nearby(game_map, ship.position, radius=3, descending=True)
+    new_target = next(t.position for t in new_targets if t.position not in ship_targets.values())
+    dist_from_home = game_map.calculate_distance(ship.position, nearest_dropoff)
+    dist_from_target = game_map.calculate_distance(ship.position, new_target)
+    # If Halite/turn of going to nearby target > going back then go to new target
+    new_reward = ship.halite_amount + game_map[new_target].halite_amount - (
+                 100 if game.turn_number < 350 else 50) - \
+                 get_path_halite_cost(ship.position, new_target, game_map)
+    if (ship.halite_amount * .98 ** (dist_from_home if game.turn_number < 250 else 0) <
+            min(1000, new_reward) * .98 ** (
+                    (dist_from_home + dist_from_target) if game.turn_number < 250 else 0)):
+        logging.info('Ship {} finished at {}, moving to nearby target {}'
+                     .format(ship.id, ship.position, new_target))
+        return new_target
+    else:
+        return None
 
 
 def pos_to_hash_key(position):
@@ -278,22 +295,8 @@ while True:
             elif ship.is_full:
                 ship_targets[ship.id] = get_nearest_dropoff(game_map, me, ship.position)
             elif game_map[ship.position].halite_amount < 50:
-                new_targets = get_halite_cells_nearby(game_map, ship.position, radius=3, descending=True)
-                new_target = next(t.position for t in new_targets if t.position not in ship_targets.values())
-                dist_from_home = game_map.calculate_distance(ship.position, nearest_dropoff)
-                dist_from_target = game_map.calculate_distance(ship.position, new_target)
-                # If Halite/turn of going to nearby target > going back then go to new target
-                new_reward = ship.halite_amount + game_map[new_target].halite_amount - (
-                    100 if game.turn_number < 350 else 50) - \
-                             get_path_halite_cost(ship.position, new_target, game_map)
-                if (ship.halite_amount * .98 ** (dist_from_home if game.turn_number < 250 else 0) <
-                        min(1000, new_reward) * .98 ** (
-                        (dist_from_home + dist_from_target) if game.turn_number < 250 else 0)):
-                    logging.info('Ship {} finished collecting at {}, moving to nearby target {}'
-                                 .format(ship.id, ship.position, new_target))
-                    ship_targets[ship.id] = new_target
-                else:
-                    ship_targets[ship.id] = nearest_dropoff
+                new_target = try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets)
+                ship_targets[ship.id] = nearest_dropoff if new_target is None else new_target
             else:  # keep collecting
                 register_move(ship, Direction.Still, command_dict, game_map)
         else:
@@ -302,23 +305,9 @@ while True:
             else:
                 if ship_targets[ship.id] in get_dropoff_positions(me):
                     if ship.halite_amount < constants.MAX_HALITE * .7 and game.turn_number > 100:
-                        # TODO: refactor this part, used above
-                        logging.info("Mid game: Ship {} researching leftovers around{}".format(ship.id, ship.position))
-                        new_targets = get_halite_cells_nearby(game_map, ship.position, radius=3, descending=True)
-                        new_target = next(t.position for t in new_targets if t.position not in ship_targets.values())
-                        dist_from_home = game_map.calculate_distance(ship.position, nearest_dropoff)
-                        dist_from_target = game_map.calculate_distance(ship.position, new_target)
-                        # If Halite/turn of going to nearby target > going back then go to new target
-                        new_reward = ship.halite_amount + game_map[new_target].halite_amount - (
-                            100 if game.turn_number < 350 else 50) - \
-                                     get_path_halite_cost(ship.position, new_target, game_map)
-                        if (ship.halite_amount * .98 ** (dist_from_home if game.turn_number < 250 else 0) <
-                                min(1000, new_reward) * .98 ** (
-                                        (dist_from_home + dist_from_target) if game.turn_number < 250 else 0)):
-                            logging.info('Ship {} altering its plan to nearby target {}'
-                                         .format(ship.id, ship.position, new_target))
+                        new_target = try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets)
+                        if new_target is not None:
                             ship_targets[ship.id] = new_target
-                            # TODO: can have infinite recursion
                 elif game.turn_number > 350 and game_map[ship.position].halite_amount > 100: # 1.2 * mean_halite:
                     logging.info("LATE GAME: Ship {} stalling at {}".format(ship.id, ship.position))
                     register_move(ship, Direction.Still, command_dict, game_map)
@@ -353,11 +342,22 @@ while True:
                 register_move(ship, Direction.Still, command_dict, game_map)
                 continue
 
+        # opening: make ways, not very effective
         possible_moves = get_possible_moves(ship_targets[ship.id], ship, game_map)
         if ship.position == me.shipyard.position and game.turn_number < 6:
             possible_moves.extend([d for d in Direction.get_all_cardinals()
                                    if d not in possible_moves
                                    and not game_map[ship.position.directional_offset(d)].is_occupied])
+
+        # try move sideways if the only possible move is blocked by enemy
+        # TODO: wait once if inverting required.?
+        if len(possible_moves) == 1:
+            p = ship.position.directional_offset(possible_moves[0])
+            if game_map[p].is_occupied and game_map[p].ship.id not in [s.id for s in me.get_ships()]:
+                possible_moves.extend([d for d in Direction.get_all_cardinals()
+                                       if d not in possible_moves
+                                       and not game_map[ship.position.directional_offset(d)].is_occupied
+                                       and d != Direction.invert(possible_moves[0])])
 
         for m in possible_moves:
             p = ship.position.directional_offset(m)
@@ -381,7 +381,7 @@ while True:
                     if pos_to_hash_key(p) in nextpos_ship:
                         del nextpos_ship[pos_to_hash_key(p)]
                     break
-                # TODO: doesn't work!
+                # TODO: fleeing doesn't work!
                 # else:
                 #     logging.info("Ship {} is fleeing from enemy!")
                 #     inv_m = Direction.invert(m)
