@@ -30,17 +30,10 @@ def get_halite_cells(map, me, descending=False):
     dropoffs = get_dropoff_positions(me)
     for dropoff in dropoffs:
         full_coord.remove(map[dropoff])
-    # Remember multiplying constant should have no effect at all!
-    # Discount factor seems to worsen the results..
-    # if game.turn_number < 250:
-    #    full_coord.sort(key=lambda x: x.halite_amount * .97 ** (2 * map.calculate_distance(dropoff, x.position)), reverse=False)
-    # else:
-    full_coord.sort(key=lambda x: x.halite_amount /
-                    (map.calculate_distance(get_nearest_dropoff(map, me, x.position), x.position)),
-                    reverse=descending)
-    # TODO: This doesn't quite work
-    # full_coord.sort(key=lambda x: (x.halite_amount - get_path_halite_cost(dropoff, x.position, map))
-    #                * .98 ** (2 * map.calculate_distance(dropoff, x.position)), reverse=False)
+
+    # TODO: vary df throughout the game/depending on map_size
+    full_coord.sort(key=lambda x: (x.halite_amount - 50)
+                    * .95 ** (2 * map.calculate_distance(get_nearest_dropoff(map, me, x.position), x.position)), reverse=descending)
     return full_coord
 
 
@@ -55,10 +48,9 @@ def get_halite_cells_nearby(game_map, current_pos, radius=3, descending=False):
     coords = get_surrounding_cells(game_map, current_pos, radius)
     # if map[current_pos] in full_coord:
     #    full_coord.remove(map[current_pos])
-    coords.sort(key=lambda x: x.halite_amount, reverse=descending)
-    # TODO: distance/discount factor
-    # full_coord.sort(key=lambda x: x.halite_amount * .98 ** map.calculate_distance(current_pos, x.position),
-    #                reverse=False)
+    coords.sort(key=lambda x: (x.halite_amount - 50)
+                * .95 ** (2 * game_map.calculate_distance(get_nearest_dropoff(game_map, me, x.position), x.position)),
+                reverse=descending)
     return coords
 
 
