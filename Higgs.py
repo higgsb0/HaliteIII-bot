@@ -25,15 +25,31 @@ def get_path_halite_cost(start, end, map):
     return cost
 
 
+def get_df():
+    if game.turn_number < 100:
+        df = .95
+    elif game.turn_number < 200:
+        df = .96
+    elif game.turn_number < 300:
+        df = .97
+    elif game.turn_number < 400:
+        df = .98
+    else:
+        df = .99
+    return df
+
+
 def get_halite_cells(map, me, descending=False):
     full_coord = [map[Position(j, i)] for i in range(0, map.height) for j in range(0, map.width)]
     dropoffs = get_dropoff_positions(me)
     for dropoff in dropoffs:
         full_coord.remove(map[dropoff])
 
-    # TODO: vary df throughout the game/depending on map_size
+    df = get_df()
+    # TODO: path cost timed out
     full_coord.sort(key=lambda x: (x.halite_amount - 50)
-                    * .95 ** (2 * map.calculate_distance(get_nearest_dropoff(map, me, x.position), x.position)), reverse=descending)
+                                  #  - get_path_halite_cost(get_nearest_dropoff(map, me, x.position), x.position, map))
+                    * df ** (2 * map.calculate_distance(get_nearest_dropoff(map, me, x.position), x.position)), reverse=descending)
     return full_coord
 
 
@@ -49,7 +65,8 @@ def get_halite_cells_nearby(game_map, current_pos, radius=3, descending=False):
     # if map[current_pos] in full_coord:
     #    full_coord.remove(map[current_pos])
     coords.sort(key=lambda x: (x.halite_amount - 50)
-                * .95 ** (2 * game_map.calculate_distance(get_nearest_dropoff(game_map, me, x.position), x.position)),
+                               #get_path_halite_cost(get_nearest_dropoff(game_map, me, x.position), x.position, game_map))
+                * get_df() ** (2 * game_map.calculate_distance(get_nearest_dropoff(game_map, me, x.position), x.position)),
                 reverse=descending)
     return coords
 
@@ -103,8 +120,8 @@ def try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets):
     new_reward = ship.halite_amount + game_map[new_target].halite_amount - (
                  100 if game.turn_number < 350 else 50) - \
                  get_path_halite_cost(ship.position, new_target, game_map)
-    if (ship.halite_amount * .95 ** (dist_from_home if game.turn_number < 250 else 0) <
-            min(1000, new_reward) * .95 ** (
+    if (ship.halite_amount * get_df() ** (dist_from_home if game.turn_number < 250 else 0) <
+            min(1000, new_reward) * get_df() ** (
                     (dist_from_home + dist_from_target) if game.turn_number < 250 else 0)):
         logging.info('Ship {} finished at {}, moving to nearby target {}'
                      .format(ship.id, ship.position, new_target))
@@ -324,9 +341,8 @@ while True:
     logging.info("#1 Finding all potential moves...")
     for ship in me.get_ships():
         if ship.id == ship_to_be_dropoff:
-            if ship.halite_amount + game_map[ship.position].halite_amount + me.halite_amount > 4000:
+            if ship.halite_amount + game_map[ship.position].halite_amount + me.halite_amount >= 4000:
                 command_dict[ship.id] = ship.make_dropoff()
-                ship_to_be_dropoff = None
                 building_dropoff = True
                 logging.info("Ship {} will be converted to a dropoff at {}".format(ship.id, ship.position))
                 continue
@@ -407,8 +423,14 @@ while True:
     for k, v in command_dict.items():
         command_queue.append(v)
 
+    dropoff_cost = 0
+    if building_dropoff:
+        ship_obj = game.me.get_ship(ship_to_be_dropoff)
+        dropoff_cost = 4000 - ship_obj.halite_amount - game_map[ship_obj.position].halite_amount
+        ship_to_be_dropoff = None
+
     if game.turn_number <= (MAX_TURN - 225) and \
-            me.halite_amount - (4000 if building_dropoff else 0) >= constants.SHIP_COST and \
+            me.halite_amount - dropoff_cost >= constants.SHIP_COST and \
             not game_map[me.shipyard].is_occupied and ship_to_be_dropoff is None \
             and len(me.get_ships()) < ship_limit[game_map.height]:
         # TODO: ship limit dependent on halite available on the maps
