@@ -729,7 +729,7 @@ while True:
     pause_ship_production = ship_to_be_dropoff and \
                             game.me.get_ship(ship_to_be_dropoff).position == ship_targets[ship_to_be_dropoff]
 
-    tweaking_constant = 1/1E6
+    tweaking_constant = 1/.9E6
     if len(me.get_ships()) < remaining_halite * (MAX_TURN - game.turn_number) * tweaking_constant and\
             me.halite_amount - dropoff_cost >= constants.SHIP_COST and \
             not game_map[me.shipyard].is_occupied and not pause_ship_production:
