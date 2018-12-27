@@ -402,7 +402,7 @@ logging.info(is_4p)
 # SETTINGS
 TURNS_TO_RECALL = 10
 DROPOFF_HALITE_THRESHOLD = 4000
-DROPOFF_MIN_DISTANCE = int(game.game_map.height / 5)
+DROPOFF_MIN_DISTANCE = int(game.game_map.height / 4.2)
 DROPOFF_MIN_SHIP = 15
 DROPOFF_MAX_NO = 2  # not including shipyard
 DROPOFF_MAX_TURN = 250  # from final turn
