@@ -718,11 +718,10 @@ while True:
     pause_ship_production = ship_to_be_dropoff and \
                             game.me.get_ship(ship_to_be_dropoff).position == ship_targets[ship_to_be_dropoff]
 
-    if game.turn_number <= (MAX_TURN - SHIP_MAX_TURN) and \
+    tweaking_constant = 1/1E6
+    if len(me.get_ships()) < remaining_halite * (MAX_TURN - game.turn_number) * tweaking_constant and\
             me.halite_amount - dropoff_cost >= constants.SHIP_COST and \
-            not game_map[me.shipyard].is_occupied and not pause_ship_production \
-            and len(me.get_ships()) < ship_limit[game_map.height]:
-        # TODO: ship limit dependent on halite available on the maps
+            not game_map[me.shipyard].is_occupied and not pause_ship_production:
         command_queue.append(me.shipyard.spawn())
 
     # Send your moves back to the game environment, ending this turn.
