@@ -476,7 +476,6 @@ while True:
 
     for ship in me.get_ships():
         # logging.info("Ship {} at {} has {} halite.".format(ship.id, ship.position, ship.halite_amount))
-        ship_targets[ship.id] = nearest_dropoff
         if ship.id == ship_to_be_dropoff:  # wait till enough halite
             continue
 
