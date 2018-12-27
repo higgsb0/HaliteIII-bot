@@ -335,8 +335,7 @@ def get_dropoff_candidate(game_map, me, is_4p):
     for p in positions:
         near_dropoff = False
         for dropoff in dropoffs:
-            if dropoff.position.x - DROPOFF_MIN_DISTANCE < p.x < dropoff.position.x + DROPOFF_MIN_DISTANCE and \
-            dropoff.position.y - DROPOFF_MIN_DISTANCE < p.y < dropoff.position.y + DROPOFF_MIN_DISTANCE:
+            if game_map.calculate_distance(dropoff.position, p) < DROPOFF_MIN_DISTANCE:
                 near_dropoff = True
                 break
         if not near_dropoff:
@@ -410,7 +409,7 @@ logging.info(is_4p)
 # SETTINGS
 TURNS_TO_RECALL = 10
 DROPOFF_HALITE_THRESHOLD = 5000
-DROPOFF_MIN_DISTANCE = int(game.game_map.height / 4.2)
+DROPOFF_MIN_DISTANCE = int(game.game_map.height / 3)
 DROPOFF_MIN_SHIP = 15
 DROPOFF_MAX_NO = 2  # not including shipyard
 DROPOFF_MAX_TURN = 250  # from final turn
@@ -500,6 +499,7 @@ while True:
         dist = game_map.calculate_distance(ship.position, nearest_dropoff)
         if MAX_TURN - game.turn_number - TURNS_TO_RECALL < dist:
             # it's late, ask everyone to come home
+            ship_targets[ship.id] = nearest_dropoff
             if dist == 1:  # CRASH
                 move = game_map.get_unsafe_moves(ship.position, nearest_dropoff)[0]
                 register_move(ship, move, command_dict, game_map)
