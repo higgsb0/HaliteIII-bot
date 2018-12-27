@@ -311,12 +311,12 @@ def get_cells_of_our_quadrant(game_map, me, is_4p):
 
     if is_4p:
         if me.shipyard.position.x < game_map.width / 2:
-            if me.shipyard.position.x < game_map.height / 2:
+            if me.shipyard.position.y < game_map.height / 2:
                 return [game_map[Position(j, i)] for i in range(0, h_half) for j in range(0, w_half)]
             else:
                 return [game_map[Position(j, i)] for i in range(h_half, h) for j in range(0, w_half)]
         else:
-            if me.shipyard.position.x < game_map.height / 2:
+            if me.shipyard.position.y < game_map.height / 2:
                 return [game_map[Position(j, i)] for i in range(0, h_half) for j in range(w_half, w)]
             else:
                 return [game_map[Position(j, i)] for i in range(h_half, h) for j in range(w_half, w)]
@@ -328,18 +328,26 @@ def get_cells_of_our_quadrant(game_map, me, is_4p):
 
 
 def get_dropoff_candidate(game_map, me, is_4p):
-    dropoff_surroundings = [get_surrounding_cells(game_map, c.position, radius=DROPOFF_MIN_DISTANCE)
-                            for c in get_all_dropoffs_including_enemies(game_map)]
-    dropoff_surroundings = [p for sur_list in dropoff_surroundings for p in sur_list]
     # TODO: this is quite passive - can relax the constraint
     positions = [c.position for c in get_cells_of_our_quadrant(game_map, me, is_4p)]
-    positions = [p for p in positions if game_map[p] not in dropoff_surroundings]
-    if len(positions) == 0:
+    dropoffs = get_all_dropoffs_including_enemies(game_map)
+    candidates = []
+    for p in positions:
+        near_dropoff = False
+        for dropoff in dropoffs:
+            if dropoff.position.x - DROPOFF_MIN_DISTANCE < p.x < dropoff.position.x + DROPOFF_MIN_DISTANCE and \
+            dropoff.position.y - DROPOFF_MIN_DISTANCE < p.y < dropoff.position.y + DROPOFF_MIN_DISTANCE:
+                near_dropoff = True
+                break
+        if not near_dropoff:
+            candidates.append(p)
+
+    if len(candidates) == 0:
         return None
 
     max_amount = 0
     candidate = None
-    for p in positions:
+    for p in candidates:
         amount = get_surrounding_halite(game_map, p, radius=5)
         if amount > max_amount:
             max_amount = amount
@@ -401,7 +409,7 @@ logging.info(is_4p)
 
 # SETTINGS
 TURNS_TO_RECALL = 10
-DROPOFF_HALITE_THRESHOLD = 4000
+DROPOFF_HALITE_THRESHOLD = 5000
 DROPOFF_MIN_DISTANCE = int(game.game_map.height / 4.2)
 DROPOFF_MIN_SHIP = 15
 DROPOFF_MAX_NO = 2  # not including shipyard
@@ -456,6 +464,7 @@ while True:
     # 0. Setting targets
     logging.info("#0 Setting targets...")
 
+    next_dropoff_candidate = None
     if len(me.get_ships()) > DROPOFF_MIN_SHIP * (len(me.get_dropoffs()) + 1) and \
             len(me.get_dropoffs()) < DROPOFF_MAX_NO and ship_to_be_dropoff is None:
         next_dropoff_candidate = get_dropoff_candidate(game_map, me, is_4p)
@@ -467,6 +476,7 @@ while True:
 
     for ship in me.get_ships():
         # logging.info("Ship {} at {} has {} halite.".format(ship.id, ship.position, ship.halite_amount))
+        ship_targets[ship.id] = nearest_dropoff
         if ship.id == ship_to_be_dropoff:  # wait till enough halite
             continue
 
@@ -491,7 +501,6 @@ while True:
         dist = game_map.calculate_distance(ship.position, nearest_dropoff)
         if MAX_TURN - game.turn_number - TURNS_TO_RECALL < dist:
             # it's late, ask everyone to come home
-            ship_targets[ship.id] = nearest_dropoff
             if dist == 1:  # CRASH
                 move = game_map.get_unsafe_moves(ship.position, nearest_dropoff)[0]
                 register_move(ship, move, command_dict, game_map)
