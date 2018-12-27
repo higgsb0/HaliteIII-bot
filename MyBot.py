@@ -335,8 +335,7 @@ def get_dropoff_candidate(game_map, me, is_4p):
     for p in positions:
         near_dropoff = False
         for dropoff in dropoffs:
-            if dropoff.position.x - DROPOFF_MIN_DISTANCE < p.x < dropoff.position.x + DROPOFF_MIN_DISTANCE and \
-            dropoff.position.y - DROPOFF_MIN_DISTANCE < p.y < dropoff.position.y + DROPOFF_MIN_DISTANCE:
+            if game_map.calculate_distance(dropoff.position, p) < DROPOFF_MIN_DISTANCE:
                 near_dropoff = True
                 break
         if not near_dropoff:
@@ -410,7 +409,7 @@ logging.info(is_4p)
 # SETTINGS
 TURNS_TO_RECALL = 10
 DROPOFF_HALITE_THRESHOLD = 5000
-DROPOFF_MIN_DISTANCE = int(game.game_map.height / 4.2)
+DROPOFF_MIN_DISTANCE = int(game.game_map.height / 3)
 DROPOFF_MIN_SHIP = 15
 DROPOFF_MAX_NO = 2  # not including shipyard
 DROPOFF_MAX_TURN = 250  # from final turn
@@ -476,7 +475,6 @@ while True:
 
     for ship in me.get_ships():
         # logging.info("Ship {} at {} has {} halite.".format(ship.id, ship.position, ship.halite_amount))
-        ship_targets[ship.id] = nearest_dropoff
         if ship.id == ship_to_be_dropoff:  # wait till enough halite
             continue
 
@@ -501,6 +499,7 @@ while True:
         dist = game_map.calculate_distance(ship.position, nearest_dropoff)
         if MAX_TURN - game.turn_number - TURNS_TO_RECALL < dist:
             # it's late, ask everyone to come home
+            ship_targets[ship.id] = nearest_dropoff
             if dist == 1:  # CRASH
                 move = game_map.get_unsafe_moves(ship.position, nearest_dropoff)[0]
                 register_move(ship, move, command_dict, game_map)
@@ -719,11 +718,10 @@ while True:
     pause_ship_production = ship_to_be_dropoff and \
                             game.me.get_ship(ship_to_be_dropoff).position == ship_targets[ship_to_be_dropoff]
 
-    if game.turn_number <= (MAX_TURN - SHIP_MAX_TURN) and \
+    tweaking_constant = 1/1E6
+    if len(me.get_ships()) < remaining_halite * (MAX_TURN - game.turn_number) * tweaking_constant and\
             me.halite_amount - dropoff_cost >= constants.SHIP_COST and \
-            not game_map[me.shipyard].is_occupied and not pause_ship_production \
-            and len(me.get_ships()) < ship_limit[game_map.height]:
-        # TODO: ship limit dependent on halite available on the maps
+            not game_map[me.shipyard].is_occupied and not pause_ship_production:
         command_queue.append(me.shipyard.spawn())
 
     # Send your moves back to the game environment, ending this turn.
