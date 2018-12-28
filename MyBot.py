@@ -357,7 +357,7 @@ def get_dropoff_candidate(game_map, me, is_4p):
     max_amount = 0
     candidate = None
     for p in candidates:
-        amount = get_surrounding_halite(game_map, p, radius=5)
+        amount = get_surrounding_halite(game_map, p, radius=6)
         if amount > max_amount:
             max_amount = amount
             candidate = p
@@ -418,29 +418,31 @@ logging.info(is_4p)
 
 # SETTINGS
 TURNS_TO_RECALL = 10
-DROPOFF_HALITE_THRESHOLD = 5500
+DROPOFF_HALITE_THRESHOLD = 6500
 DROPOFF_MIN_DISTANCE = int(game.game_map.height / 3)
 DROPOFF_MIN_SHIP = 15
 DROPOFF_MAX_NO = 4  # not including shipyard
 DROPOFF_MAX_TURN = 250  # from final turn
 SHIP_MAX_TURN = 200  # from final turn
-SHIP_HOLD_AMOUNT = constants.MAX_HALITE * .85
+SHIP_HOLD_AMOUNT = constants.MAX_HALITE * .9
 STALLING_THRESHOLD_SOFT = 200  # stall one round
 STALLING_THRESHOLD_HARD = 400  # stall till cell has less than this
 HALITE_THRESHOLD_EARLY = 50
-HALITE_THRESHOLD_LATE = 28
+HALITE_THRESHOLD_LATE = 20
 NEARBY_SEARCH_RADIUS_EARLY = 2
 NEARBY_SEARCH_RADIUS_LATE = 4
 EARLY_GAME_TURN = 100  # to switch halite collection strategy
-LATE_GAME_TURN = 300
+LATE_GAME_TURN = 350
 
+from heapq import merge
+from itertools import count
 
 while True:
     game.update_frame()
     me = game.me
     game_map = game.game_map
 
-    IS_LATE_GAME = game.turn_number > LATE_GAME_TURN
+
     graph = {}
     target_count = defaultdict(int)
     command_queue = []
@@ -455,6 +457,10 @@ while True:
     building_dropoff_this_round = False
     remaining_halite = get_unextracted_halite(map_cells_cache)
     mean_halite = remaining_halite / game_map.height / game_map.height
+    IS_LATE_GAME = game.turn_number > LATE_GAME_TURN and mean_halite < 100
+    halite_threshold_start_collect = mean_halite * .8
+    halite_threshold_end_collect = mean_halite * .5
+
     logging.info("Remaining halite: {}, ({} on average)".format(remaining_halite, mean_halite))
 
     logging.info('Clearing targets of crashed ships')
@@ -475,6 +481,7 @@ while True:
 
     next_dropoff_candidate = None
     if len(me.get_ships()) > DROPOFF_MIN_SHIP * (len(me.get_dropoffs()) + 1) and \
+            game.turn_number < MAX_TURN - DROPOFF_MAX_TURN and \
             len(me.get_dropoffs()) < remaining_halite/50000/(4 if is_4p else 2) and ship_to_be_dropoff is None:
         next_dropoff_candidate = get_dropoff_candidate(game_map, me, is_4p)
 
@@ -538,9 +545,8 @@ while True:
             elif ship.is_full:
                 ship_targets[ship.id] = nearest_dropoff
             else:
-                halite_threshold = HALITE_THRESHOLD_LATE if IS_LATE_GAME else HALITE_THRESHOLD_EARLY
                 search_radius = NEARBY_SEARCH_RADIUS_LATE if IS_LATE_GAME else NEARBY_SEARCH_RADIUS_EARLY
-                if game_map[ship.position].halite_amount > halite_threshold:
+                if game_map[ship.position].halite_amount > halite_threshold_end_collect:
                     register_move(ship, Direction.Still, command_dict, game_map)
                     continue
                 elif ship.halite_amount < SHIP_HOLD_AMOUNT / 2 and not IS_LATE_GAME:  # early game but barely fill
@@ -557,7 +563,6 @@ while True:
             if ship.is_full:
                 ship_targets[ship.id] = nearest_dropoff
             else:
-                halite_threshold = HALITE_THRESHOLD_LATE if IS_LATE_GAME else HALITE_THRESHOLD_EARLY
                 search_radius = NEARBY_SEARCH_RADIUS_LATE if IS_LATE_GAME else NEARBY_SEARCH_RADIUS_EARLY
 
                 if ship_targets[ship.id] in get_dropoff_positions(me):  # Going home
@@ -571,12 +576,12 @@ while True:
                         else:
                             del stalling_ships[ship.id]
                             continue
-                elif game.turn_number < 375 and game_map[ship_targets[ship.id]].halite_amount < 50:
+                elif not IS_LATE_GAME and game_map[ship_targets[ship.id]].halite_amount < HALITE_THRESHOLD_EARLY:
                     logging.info("Early game, Ship {}'s target at {} seems to have depleted, reassigning target"
                                  .format(ship.id, ship_targets[ship.id]))
                     new_target = try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets, 6)
                     ship_targets[ship.id] = nearest_dropoff if new_target is None else new_target
-                elif game.turn_number < 375 and \
+                elif not IS_LATE_GAME and game_map[ship_targets[ship.id]].halite_amount < 1500 and \
                      (game_map[ship_targets[ship.id]].is_occupied and not me.has_ship(game_map[ship_targets[ship.id]].ship.id)):
                     logging.info("Early game, Ship {}'s target at {} is occupied by opponents, reassigning target"
                                  .format(ship.id, ship_targets[ship.id]))
@@ -651,7 +656,7 @@ while True:
                                 ship_planned_moves[ship.id] = [blocked_move, blocked_move]
                                 possible_moves = [s]
                                 break
-                    elif p == ship_targets[game_map[p].ship.id] and get_ship_remaining_turns(game_map, game_map[p].ship,
+                    elif p == ship_targets[game_map[p].ship.id] and not IS_LATE_GAME and get_ship_remaining_turns(game_map, game_map[p].ship,
                                             HALITE_THRESHOLD_EARLY if IS_LATE_GAME else HALITE_THRESHOLD_LATE) > 1:
                         # blocked by own ship, swap targets
                         logging.info('Ship {} is blocked by {} so they are swapping targets'.
@@ -730,10 +735,12 @@ while True:
                             game.me.get_ship(ship_to_be_dropoff).position == ship_targets[ship_to_be_dropoff]
 
     tweaking_constant = 1/.9E6
-    if len(me.get_ships()) < remaining_halite * (MAX_TURN - game.turn_number) * tweaking_constant and\
-            me.halite_amount - dropoff_cost >= constants.SHIP_COST and \
+    if len(me.get_ships()) < remaining_halite * (MAX_TURN - game.turn_number) * tweaking_constant and \
+            me.halite_amount - dropoff_cost >= constants.SHIP_COST and game.turn_number < MAX_TURN - SHIP_MAX_TURN and \
             not game_map[me.shipyard].is_occupied and not pause_ship_production:
         command_queue.append(me.shipyard.spawn())
 
     # Send your moves back to the game environment, ending this turn.
     game.end_turn(command_queue)
+
+# relax dropoff distribution
