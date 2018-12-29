@@ -5,8 +5,6 @@ from hlt import constants
 from hlt.positionals import Direction, Position
 import logging
 from collections import defaultdict, OrderedDict, namedtuple
-from heapq import merge
-from itertools import count
 
 # import numpy as np
 
