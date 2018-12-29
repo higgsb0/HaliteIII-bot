@@ -5,6 +5,8 @@ from hlt import constants
 from hlt.positionals import Direction, Position
 import logging
 from collections import defaultdict, OrderedDict, namedtuple
+from heapq import merge
+from itertools import count
 
 # import numpy as np
 
@@ -56,7 +58,6 @@ def get_halite_cells(game_map, me, map_cells, descending=False):
     df = get_df()
     # TODO: path cost timed out
     full_coord.sort(key=lambda x: (x.halite_amount - 50)
-                                  #  - get_path_halite_cost(get_nearest_dropoff(map, me, x.position), x.position, map))
                                   * df ** (2 * game_map.calculate_distance(
         get_nearest_dropoff(game_map, me, x.position), x.position)), reverse=descending)
 
@@ -184,6 +185,20 @@ def try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets, 
     #    logging.info('Ship {} finished at {}, haven\'t found nearby target'
     #                 .format(ship.id, ship.position))
     #    return None
+
+
+def distance_column(x0, x, y0):
+    dist_x = (x - x0) ** 2
+    yield dist_x, (x, y0)
+    for dy in count(1):
+        dist = dist_x + dy ** 2
+        yield dist, (x, y0 + dy)
+        yield dist, (x, y0 - dy)
+
+
+def circle_around(x0, y0, end_x):
+    for dist_point in merge(*(distance_column(x0, x, y0) for x in range(end_x))):
+        yield dist_point
 
 
 def get_nearest_halite_target(game_map, ship, ship_targets, radius=2):
@@ -434,14 +449,11 @@ NEARBY_SEARCH_RADIUS_LATE = 4
 EARLY_GAME_TURN = 100  # to switch halite collection strategy
 LATE_GAME_TURN = 350
 
-from heapq import merge
-from itertools import count
 
 while True:
     game.update_frame()
     me = game.me
     game_map = game.game_map
-
 
     graph = {}
     target_count = defaultdict(int)
@@ -553,7 +565,7 @@ while True:
                     new_target = try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets, 6)
                     ship_targets[ship.id] = nearest_dropoff if new_target is None else new_target
                     # ship_targets[ship.id] = targets.pop()
-                elif ship.halite_amount < SHIP_HOLD_AMOUNT and game.turn_number > EARLY_GAME_TURN:
+                elif ship.halite_amount < SHIP_HOLD_AMOUNT: # and game.turn_number > EARLY_GAME_TURN:
                     new_target = get_nearest_halite_target(game_map, ship, ship_targets, search_radius) \
                         if IS_LATE_GAME else try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets, search_radius)
                     ship_targets[ship.id] = nearest_dropoff if new_target is None else new_target
@@ -643,7 +655,6 @@ while True:
                 # try move sideways if the only possible move is blocked by enemy, or a ship staying more than one turn
                 if game_map[p].is_occupied:
                     if not me.has_ship(game_map[p].ship.id):
-                        # TODO: populate a path here
                         side_moves = [d for d in Direction.get_all_cardinals()
                                       if d not in possible_moves
                                       and not game_map[ship.position.directional_offset(d)].is_occupied
