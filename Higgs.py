@@ -387,7 +387,7 @@ DROPOFF_MAX_TURN = 250  # from final turn
 SHIP_MAX_TURN = 200  # from final turn
 SHIP_HOLD_AMOUNT = constants.MAX_HALITE * .9
 STALLING_THRESHOLD_SOFT = 200  # stall one round
-STALLING_THRESHOLD_HARD = 400  # stall till cell has less than this
+STALLING_THRESHOLD_HARD = 300  # stall till cell has less than this
 HALITE_START_COLLECT_RATIO = .8  # as percentage of mean
 HALITE_END_COLLECT_RATIO = .5    # as percentage of mean
 NEARBY_SEARCH_RADIUS_EARLY = 2
@@ -636,10 +636,10 @@ while True:
                         ship_targets[ship.id] = p
 
         # Avoid crashing opponents in 4p
-        if ship.halite_amount > 300:  # and is_4p:
-            logging.info("Before resolution/prediction, Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
-            possible_moves = [p for p in possible_moves if ship.position.directional_offset(p) not in opponents_predicted_targets.values()]
-            logging.info("{} has {} possible moves after accounting for enemy".format(ship.id, len(possible_moves)))
+        #if ship.halite_amount > 300:  # and is_4p:
+        #    logging.info("Before resolution/prediction, Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
+        #    possible_moves = [p for p in possible_moves if ship.position.directional_offset(p) not in opponents_predicted_targets.values()]
+        #    logging.info("{} has {} possible moves after accounting for enemy".format(ship.id, len(possible_moves)))
 
         for m in possible_moves:
             p = ship.position.directional_offset(m)
@@ -714,5 +714,3 @@ while True:
 
     # Send your moves back to the game environment, ending this turn.
     game.end_turn(command_queue)
-
-# collision
