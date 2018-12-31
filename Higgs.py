@@ -636,10 +636,10 @@ while True:
                         ship_targets[ship.id] = p
 
         # Avoid crashing opponents in 4p
-        #if ship.halite_amount > 300:  # and is_4p:
-        #    logging.info("Before resolution/prediction, Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
-        #    possible_moves = [p for p in possible_moves if ship.position.directional_offset(p) not in opponents_predicted_targets.values()]
-        #    logging.info("{} has {} possible moves after accounting for enemy".format(ship.id, len(possible_moves)))
+        if ship.halite_amount > 300:  # and is_4p:
+            logging.info("Before resolution/prediction, Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
+            possible_moves = [p for p in possible_moves if ship.position.directional_offset(p) not in opponents_predicted_targets.values()]
+            logging.info("{} has {} possible moves after accounting for enemy".format(ship.id, len(possible_moves)))
 
         for m in possible_moves:
             p = ship.position.directional_offset(m)
@@ -714,3 +714,5 @@ while True:
 
     # Send your moves back to the game environment, ending this turn.
     game.end_turn(command_queue)
+
+# collision
