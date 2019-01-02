@@ -415,7 +415,7 @@ IS_4P = len(game.players) == 4
 # SETTINGS
 TURNS_TO_RECALL = 10
 DROPOFF_HALITE_THRESHOLD = 3500
-DROPOFF_MIN_DISTANCE = int(game.game_map.height / (2.75 if IS_4P else 3.5))
+DROPOFF_MIN_DISTANCE = int(game.game_map.height / (3.5 if IS_4P else 2.75))
 DROPOFF_MIN_SHIP = {1: 20, 2: 35, 3: 50, 4: 60, 5: 70}
 DROPOFF_MAX_NO = 4  # not including shipyard
 DROPOFF_MAX_TURN = 250  # from final turn
@@ -474,7 +474,7 @@ while True:
     logging.info("#0 Setting targets...")
 
     next_dropoff_candidate = None
-    if len(me.get_ships()) > DROPOFF_MIN_SHIP[len(me.get_dropoffs()) + 1] and \
+    if (me.get_dropoffs() + 1 in DROPOFF_MIN_SHIP) and len(me.get_ships()) > DROPOFF_MIN_SHIP[len(me.get_dropoffs()) + 1] and \
             game.turn_number < MAX_TURN - DROPOFF_MAX_TURN and \
             len(me.get_dropoffs()) < remaining_halite / 12500 / (3.5 if IS_4P else 2) and ship_to_be_dropoff_id is None:
         next_dropoff_candidate = get_dropoff_candidate(game_map, me, IS_4P)
