@@ -415,7 +415,7 @@ IS_4P = len(game.players) == 4
 # SETTINGS
 TURNS_TO_RECALL = 10
 DROPOFF_HALITE_THRESHOLD = 3500
-DROPOFF_MIN_DISTANCE = int(game.game_map.height / 3.5 if IS_4P else 2.75)
+DROPOFF_MIN_DISTANCE = int(game.game_map.height / (3.5 if IS_4P else 2.75))
 DROPOFF_MIN_SHIP = {1: 20, 2: 35, 3: 50, 4: 60}
 DROPOFF_MAX_NO = 4  # not including shipyard
 DROPOFF_MAX_TURN = 250  # from final turn
