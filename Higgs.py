@@ -474,7 +474,7 @@ while True:
     logging.info("#0 Setting targets...")
 
     next_dropoff_candidate = None
-    if (me.get_dropoffs() + 1 in DROPOFF_MIN_SHIP) and len(me.get_ships()) > DROPOFF_MIN_SHIP[len(me.get_dropoffs()) + 1] and \
+    if (len(me.get_dropoffs()) + 1 in DROPOFF_MIN_SHIP) and len(me.get_ships()) > DROPOFF_MIN_SHIP[len(me.get_dropoffs()) + 1] and \
             game.turn_number < MAX_TURN - DROPOFF_MAX_TURN and \
             len(me.get_dropoffs()) < remaining_halite / 12500 / (3.5 if IS_4P else 2) and ship_to_be_dropoff_id is None:
         next_dropoff_candidate = get_dropoff_candidate(game_map, me, IS_4P)
