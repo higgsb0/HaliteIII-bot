@@ -4,7 +4,7 @@ import hlt
 from hlt import constants
 from hlt.positionals import Direction, Position
 import logging
-from collections import defaultdict, OrderedDict, namedtuple
+from collections import defaultdict, OrderedDict, namedtuple, deque
 import math
 
 global game
@@ -38,7 +38,7 @@ def get_all_map_cells(game_map):
     return [game_map[Position(j, i)] for i in range(0, game_map.height) for j in range(0, game_map.width)]
 
 
-def get_halite_cells(game_map, me, map_cells, halite_threshold, descending=False):
+def get_halite_cells(game_map, me, map_cells, halite_threshold, descending=False, extra=None):
     full_coord = map_cells
     # full_coord = [get_surrounding_cells(game_map, p, int(game_map.height/3)) for
     #              p in get_dropoff_positions(me)]
@@ -50,8 +50,10 @@ def get_halite_cells(game_map, me, map_cells, halite_threshold, descending=False
     df = get_df()
     # TODO: path cost timed out
     full_coord.sort(key=lambda x: (x.halite_amount - halite_threshold) * df ** (2 * game_map.calculate_distance(
-                    get_nearest_dropoff(game_map, me, x.position), x.position)), reverse=descending)
-
+        get_nearest_dropoff(game_map, me, x.position, extra), x.position)), reverse=descending)
+    # TODO: need to add lower & upper bound if we want to optimise with current time value
+    # full_coord.sort(key=lambda x: x.halite_amount - halite_threshold/4 * 2 * game_map.calculate_distance(
+    #                get_nearest_dropoff(game_map, me, x.position), x.position), reverse=descending)
     # TODO: problem was ships went too far off, try own quadrant/limit the search radius?
     # full_coord.sort(key=lambda x: (get_halite_priority(x.halite_amount),
     #                            1. / (game_map.calculate_distance(get_nearest_dropoff(game_map, me, x.position), x.position) + 1)),  # origin+1
@@ -67,7 +69,7 @@ def get_surrounding_cells(game_map, current_pos, radius):
 
 
 def get_surrounding_halite(game_map, current_pos, radius=6):
-    coords = get_surrounding_cells(game_map, current_pos, radius)
+    coords = get_cells_within_distance(game_map, current_pos, radius)
     total = sum([c.halite_amount for c in coords])
     return total
 
@@ -83,26 +85,28 @@ def get_possible_moves(target, ship, game_map, me):
     if ship.halite_amount >= .1 * game_map[ship.position].halite_amount:
         possible_moves = game_map.get_unsafe_moves(ship.position, target)
         is_returning = pos_to_hash_key(target) in [pos_to_hash_key(x) for x in get_dropoff_positions(me)]
-        possible_moves.sort(key=lambda x: game_map[ship.position.directional_offset(x)].halite_amount) #,
-                            #reverse=is_returning and ship.halite_amount < SHIP_HOLD_AMOUNT)
+        possible_moves.sort(key=lambda x: game_map[ship.position.directional_offset(x)].halite_amount)  # ,
+        # reverse=is_returning and ship.halite_amount < SHIP_HOLD_AMOUNT)
         return possible_moves
     else:
         logging.info("Ship {} has not enough halite to move anywhere.".format(ship.id))
         return []
 
 
-def get_dropoff_positions(me):
+def get_dropoff_positions(me, extra=None):
     dropoffs = [d.position for d in me.get_dropoffs()]
     dropoffs.append(me.shipyard.position)
+    if extra:
+        dropoffs.append(extra)  # hack dropoff going to be build
     return dropoffs
 
 
-def get_nearest_dropoff(map, me, position):
-    dropoffs = sorted(get_dropoff_positions(me), key=lambda x: map.calculate_distance(position, x))
+def get_nearest_dropoff(map, me, position, extra=None):
+    dropoffs = sorted(get_dropoff_positions(me, extra), key=lambda x: map.calculate_distance(position, x))
     return dropoffs[0]
 
 
-def get_halite_priority(amount):
+def halite_priority(amount):
     # basically set rough priority for sorting
     if amount < 30:
         return -2
@@ -131,18 +135,18 @@ def get_halite_priority(amount):
 
 
 def round_down(x):
-    return math.floor(x/100) * 100
+    return math.floor(x / 100) * 100
 
 
 def try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets, min_halite, radius=2):
     logging.info("Ship {} searching nearby targets around {}".format(ship.id, ship.position))
     new_targets = get_cells_within_distance(game_map, ship.position, radius)
     new_targets = [t for t in new_targets if t.halite_amount > min_halite]
-    new_targets.sort(key=lambda x: (get_halite_priority(x.halite_amount),
+    new_targets.sort(key=lambda x: (halite_priority(x.halite_amount),
                                     1. / (game_map.calculate_distance(nearest_dropoff, x.position) + 1)),  # origin+1
                      reverse=True)
     # TODO: shit at 4p
-    #new_targets.sort(key=lambda x: (abs(round_down(1000 - ship.halite_amount - x.halite_amount - min_halite)),
+    # new_targets.sort(key=lambda x: (abs(round_down(1000 - ship.halite_amount - x.halite_amount - min_halite)),
     #                                (game_map.calculate_distance(nearest_dropoff, x.position) + 1)))
 
     new_target = next((t.position for t in new_targets if t.position not in ship_targets.values()), nearest_dropoff)
@@ -165,10 +169,10 @@ def get_cells_within_distance(game_map, origin, radius):
     return res
 
 
-def get_nearest_halite_cell_with_x(game_map, origin, ship_targets, min_halite, max_radius=2, default_target=None):
+def nearest_halite_cell_with_x(game_map, origin, ship_targets, min_halite, max_radius=2, default_target=None):
     logging.info("Ship {} get_nearest_halite_cell_with_x {}".format(ship.id, ship.position))
     targets = get_cells_within_distance(game_map, origin, max_radius)
-    targets.sort(key=lambda t: (game_map.calculate_distance(t.position, origin), 1/(t.halite_amount+1)))
+    targets.sort(key=lambda t: (game_map.calculate_distance(t.position, origin), 1 / (t.halite_amount + 1)))
     return next((t.position for t in targets if t.halite_amount > min_halite and
                  t.position not in ship_targets.values() and not t.is_occupied), default_target)
 
@@ -330,12 +334,15 @@ def get_cells_of_our_quadrant(game_map, me, is_4p):
 
 def dropoff_candidate_is_valid(game_map, candidate):
     dropoffs = get_all_dropoffs_including_enemies(game_map)
+    #if IS_4P:
     near_dropoff = False
     for dropoff in dropoffs:
         if game_map.calculate_distance(dropoff.position, candidate) < DROPOFF_MIN_DISTANCE:
             near_dropoff = True
             break
     return not near_dropoff
+    #else:
+    #    return False if candidate in [d.position for d in dropoffs] else True
 
 
 def get_dropoff_candidate(game_map, me, is_4p):
@@ -361,6 +368,14 @@ def get_dropoff_candidate(game_map, me, is_4p):
         if amount > max_amount:
             max_amount = amount
             candidate = p
+
+    # for the first dropoff, shift slightly closer to shipyard.
+    # TODO: shifting may not actually work because visitors may not be coming from shipyard
+    # if len(me.get_dropoffs()) == 0:
+    #    logging.info("DEBUG OK")
+    #    for i in range(3):
+    #        candidate = candidate.directional_offset(game_map.get_unsafe_moves(candidate, me.shipyard.position)[0])
+
     return candidate if max_amount > DROPOFF_HALITE_THRESHOLD else None
 
 
@@ -382,6 +397,10 @@ def get_enemy_ship_count(enemy_dict):
     return enemy_ship_count
 
 
+def update_ship_halite_amount(ships):
+    return {ship.id: ship.halite_amount for ship in ships}
+
+
 mapsize_turn = {
     32: 401,
     40: 426,
@@ -393,6 +412,9 @@ mapsize_turn = {
 ship_targets = {}  # Final goal of the ship
 stalling_ships = {}  # ships that stalled the previous round
 ship_planned_moves = {}  # storing planned moves
+halite_collection_rate = deque(maxlen=10)  # to track average halite collected
+ship_prev_halite_amount = {}  # to track halite amount previous turn, hacky
+ship_last_dropoff_turn = {}  # to track when it last visited dropoff (to track collection rate)
 
 enemies_ship_prev_pos = {}
 enemies_ship_current_pos = {}
@@ -411,9 +433,8 @@ next_dropoff_candidate = None
 global IS_4P
 IS_4P = len(game.players) == 4
 
-
 # SETTINGS
-TURNS_TO_RECALL = 10
+TURNS_TO_RECALL = 3
 DROPOFF_HALITE_THRESHOLD = 3500
 DROPOFF_MIN_DISTANCE = int(game.game_map.height / (3.5 if IS_4P else 2.75))
 DROPOFF_MIN_SHIP = {1: 20, 2: 35, 3: 50, 4: 60, 5: 70}
@@ -424,7 +445,7 @@ SHIP_HOLD_AMOUNT = constants.MAX_HALITE * .9
 STALLING_THRESHOLD_SOFT = 200  # stall one round
 STALLING_THRESHOLD_HARD = 300  # stall till cell has less than this
 HALITE_START_COLLECT_RATIO = .8  # as percentage of mean
-HALITE_END_COLLECT_RATIO = .5    # as percentage of mean
+HALITE_END_COLLECT_RATIO = .5  # as percentage of mean
 NEARBY_SEARCH_RADIUS_EARLY = 2
 NEARBY_SEARCH_RADIUS_LATE = 4
 BIG_SEARCH_RADIUS = 6
@@ -447,17 +468,18 @@ while True:
     enemies_ship_current_pos = get_opponents_position(map_cells_cache, me)
     enemies_predicted_targets = predict_opponents_target(game_map, enemies_ship_prev_pos, enemies_ship_current_pos)
 
-    building_dropoff_this_round = False
+    ship_prev_halite_amount = update_ship_halite_amount(me.get_ships())
+
     remaining_halite = get_unextracted_halite(map_cells_cache)
     mean_halite = remaining_halite / game_map.height / game_map.height
     IS_LATE_GAME = game.turn_number > LATE_GAME_TURN and mean_halite < 70
-    halite_threshold_start_collect = mean_halite * HALITE_START_COLLECT_RATIO
-    halite_threshold_end_collect = mean_halite * HALITE_END_COLLECT_RATIO
+    halite_threshold_start_collect = mean_halite * HALITE_START_COLLECT_RATIO  # avg_rate*8
+    halite_threshold_end_collect = mean_halite * HALITE_END_COLLECT_RATIO  # avg_rate*4
     search_radius = NEARBY_SEARCH_RADIUS_LATE if IS_LATE_GAME else NEARBY_SEARCH_RADIUS_EARLY
 
     logging.info("Remaining halite: {}, ({} on average)".format(remaining_halite, mean_halite))
 
-    logging.info('Clearing targets of crashed ships')
+    logging.info('#-2 Clearing targets of crashed ships')
     if me.get_ships() is not None:
         crashed_ships = [s_id for s_id in ship_targets if not me.has_ship(s_id)]
         for cs in crashed_ships:
@@ -467,45 +489,76 @@ while True:
             logging.info("Ship {} was a dropoff candidate but has sunk!".format(ship_to_be_dropoff_id))
             ship_to_be_dropoff_id = None
 
-    targets = [c.position for c in get_halite_cells(game.game_map, game.me, map_cells_cache, halite_threshold_end_collect)
-               if c.position not in ship_targets.values()]
+    logging.info("#-1 Check if dropoff can be built")
+    ready_to_build_dropoff = False
+    building_dropoff_this_round = False
+    hack_dropoff = None
+    if ship_to_be_dropoff_id:
+        dropoff_ship = me.get_ship(ship_to_be_dropoff_id)
+        dropoff_pos = dropoff_ship.position
+        if ship_targets[ship_to_be_dropoff_id] == dropoff_ship.position:
+            ready_to_build_dropoff = True
+            hack_dropoff = dropoff_pos
+            logging.info("Ship {} standby at {} to build dropoff".format(dropoff_ship.id, dropoff_pos))
+            if dropoff_ship.halite_amount + game_map[dropoff_ship.position].halite_amount + me.halite_amount >= 4000:
+                command_dict[dropoff_ship.id] = dropoff_ship.make_dropoff()
+                building_dropoff_this_round = True
+                logging.info("Ship {} will be converted to a dropoff at {}".format(dropoff_ship.id, dropoff_pos))
 
     # 0. Setting targets
     logging.info("#0 Setting targets...")
+    targets = [c.position for c in
+               get_halite_cells(game.game_map, game.me, map_cells_cache, halite_threshold_end_collect,
+                                extra=hack_dropoff)
+               if c.position not in ship_targets.values()]
 
     next_dropoff_candidate = None
-    if (len(me.get_dropoffs()) + 1 in DROPOFF_MIN_SHIP) and len(me.get_ships()) > DROPOFF_MIN_SHIP[len(me.get_dropoffs()) + 1] and \
+    if (len(me.get_dropoffs()) + 1 in DROPOFF_MIN_SHIP) and len(me.get_ships()) > DROPOFF_MIN_SHIP[
+        len(me.get_dropoffs()) + 1] and \
             game.turn_number < MAX_TURN - DROPOFF_MAX_TURN and \
             len(me.get_dropoffs()) < remaining_halite / 12500 / (3.5 if IS_4P else 2) and ship_to_be_dropoff_id is None:
         next_dropoff_candidate = get_dropoff_candidate(game_map, me, IS_4P)
         if next_dropoff_candidate:
-            my_ships = sorted(me.get_ships(), key=lambda s: game_map.calculate_distance(s.position, next_dropoff_candidate))
-            my_ships = [s for s in my_ships if s.halite_amount < 400]
+            my_ships = sorted(me.get_ships(),
+                              key=lambda s: game_map.calculate_distance(s.position, next_dropoff_candidate))
+            my_ships = [s for s in my_ships if s.halite_amount < 750]
             ship_to_be_dropoff_id = my_ships[0].id
             ship_targets[ship_to_be_dropoff_id] = next_dropoff_candidate
+            hack_dropoff = next_dropoff_candidate
             logging.info("Ship {} is building dropoff at {}".format(ship_to_be_dropoff_id, next_dropoff_candidate))
-            # TODO: make other ships aware first?
 
     dropoff_shipcount = defaultdict(int)
     for id, pos in ship_targets.items():
-        nearest_dropoff = get_nearest_dropoff(game_map, me, pos)
+        nearest_dropoff = get_nearest_dropoff(game_map, me, pos, hack_dropoff)
         dropoff_shipcount[pos_to_hash_key(nearest_dropoff)] += 1
 
     for ship in me.get_ships():
         # logging.info("Ship {} at {} has {} halite.".format(ship.id, ship.position, ship.halite_amount))
         if ship.id == ship_to_be_dropoff_id:  # wait till enough halite
             if dropoff_candidate_is_valid(game_map, ship_targets[ship_to_be_dropoff_id]):
-                continue
+                # only thing allowed to do is to stall, or go build dropoff
+                if not ship.is_full and game_map[ship.position].halite_amount > STALLING_THRESHOLD_HARD:
+                    logging.info("Dropoff candidate {} hit hard stalling cell at {}".format(ship.id, ship.position))
+                    register_move(ship, Direction.Still, command_dict, game_map)
+                else:
+                    continue
             else:
                 logging.info("Ship {} should no longer build dropoff at {}".format(ship.id, ship_targets[ship.id]))
                 ship_targets[ship.id] = try_get_halite_target_nearby(
-                    game_map, ship, get_nearest_dropoff(game_map, me, ship.position), ship_targets, halite_threshold_start_collect, BIG_SEARCH_RADIUS)
+                    game_map, ship, get_nearest_dropoff(game_map, me, ship.position), ship_targets,
+                    halite_threshold_start_collect, BIG_SEARCH_RADIUS)
+                if ship.id in command_dict:  # already planned above
+                    del command_dict[ship.id]
+                ready_to_build_dropoff = False
+                building_dropoff_this_round = False
                 ship_to_be_dropoff_id = None
+                hack_dropoff = None
 
         if ship.id not in ship_targets:  # new ship - set navigation direction
             # Choose target depending on how crowded the closest dropoff is
+            ship_last_dropoff_turn[ship.id] = game.turn_number
             for i in range(len(targets) - 1, 0, -1):
-                nearest_dropoff = get_nearest_dropoff(game_map, me, targets[i])
+                nearest_dropoff = get_nearest_dropoff(game_map, me, targets[i], hack_dropoff)
                 no_of_dropoffs = len(get_dropoff_positions(me))
                 weighting = 1.3 * len(me.get_ships()) / no_of_dropoffs
                 if no_of_dropoffs > 1 and dropoff_shipcount[pos_to_hash_key(nearest_dropoff)] > weighting:
@@ -514,9 +567,10 @@ while True:
                     ship_targets[ship.id] = targets.pop(i)
                     break
 
-        nearest_dropoff = get_nearest_dropoff(game_map, me, ship.position)
+        nearest_dropoff = get_nearest_dropoff(game_map, me, ship.position, hack_dropoff)
         dist = game_map.calculate_distance(ship.position, nearest_dropoff)
-        if MAX_TURN - game.turn_number - TURNS_TO_RECALL < dist:
+        recall_turns = len(me.get_ships()) / len(get_dropoff_positions(me)) / 4
+        if MAX_TURN - game.turn_number - recall_turns - TURNS_TO_RECALL < dist:
             # it's late, ask everyone to come home
             ship_targets[ship.id] = nearest_dropoff
             if dist == 1:  # CRASH
@@ -526,32 +580,47 @@ while True:
             # reached target position
             if ship.position in get_dropoff_positions(me):  # reached shipyard, assign new target
                 ship_targets[ship.id] = targets.pop()
+                ship_last_visit = ship_last_dropoff_turn[ship.id]
+                ship_last_dropoff_turn[ship.id] = game.turn_number
+                if halite_collection_rate.maxlen <= len(halite_collection_rate):
+                    halite_collection_rate.popleft()
+                halite_collection_rate.append(ship_prev_halite_amount[ship.id] / (game.turn_number - ship_last_visit))
             elif ship.is_full:
                 ship_targets[ship.id] = nearest_dropoff
             else:
+                # to detect nearby collided points
+                nearby_target = nearest_halite_cell_with_x(game_map, ship.position, {},  # need to be quick
+                                                           STALLING_THRESHOLD_HARD, BIG_SEARCH_RADIUS)
+                if IS_LATE_GAME and nearby_target and game_map[ship.position].halite_amount < STALLING_THRESHOLD_HARD:
+                    if nearby_target in ship_targets.values():
+                        # TODO: this is a swap targets function.
+                        swap_id = [key for key, value in ship_targets.items() if value == nearby_target][0]
+                        swap_ship = me.get_ship(swap_id)
+                        if game_map.calculate_distance(nearby_target, ship.position) < \
+                                game_map.calculate_distance(nearby_target, swap_ship.position):
+                            # swap targets
+                            ship_targets[ship.id] = nearby_target
+                            new_target = nearest_halite_cell_with_x(game_map, swap_ship.position, ship_targets,
+                                                                    halite_threshold_start_collect, search_radius)
+                            ship_targets[swap_id] = new_target if new_target else targets.pop()
+                        continue
+
                 if game_map[ship.position].halite_amount > halite_threshold_end_collect:
-                    if IS_LATE_GAME:
-                        # to detect nearby collided points
-                        check_nearby = get_nearest_halite_cell_with_x(game_map, ship.position, {},  # need to be quick
-                                                                      STALLING_THRESHOLD_HARD, BIG_SEARCH_RADIUS)
-                        if check_nearby:  # and check_nearby not in ship_targets.values():
-                            ship_targets[ship.id] = check_nearby
-                            continue
                     register_move(ship, Direction.Still, command_dict, game_map)
-                    continue
                 elif ship.halite_amount < SHIP_HOLD_AMOUNT / 2 and not IS_LATE_GAME:  # early game but barely fill
-                    new_target = get_nearest_halite_cell_with_x(game_map, ship.position, ship_targets,
-                                                                halite_threshold_start_collect, search_radius)
+                    new_target = nearest_halite_cell_with_x(game_map, ship.position, ship_targets,
+                                                            halite_threshold_start_collect, search_radius)
                     ship_targets[ship.id] = targets.pop() if new_target is None else new_target
                 elif ship.halite_amount < SHIP_HOLD_AMOUNT:  # and game.turn_number > EARLY_GAME_TURN:
-                    new_target = get_nearest_halite_cell_with_x(game_map, ship.position, ship_targets,
-                                                                halite_threshold_start_collect, search_radius) \
+                    new_target = nearest_halite_cell_with_x(game_map, ship.position, ship_targets,
+                                                            halite_threshold_start_collect, search_radius) \
                         if IS_LATE_GAME else try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets,
                                                                           halite_threshold_start_collect, search_radius)
                     ship_targets[ship.id] = targets.pop() if new_target is None else new_target
                 else:
                     ship_targets[ship.id] = nearest_dropoff
         else:
+            # Travelling to target position
             if ship.is_full:
                 ship_targets[ship.id] = nearest_dropoff
             else:
@@ -566,7 +635,8 @@ while True:
                         else:
                             del stalling_ships[ship.id]
                             continue
-                elif not IS_LATE_GAME and game_map[ship_targets[ship.id]].halite_amount < halite_threshold_start_collect:
+                elif not IS_LATE_GAME and game_map[
+                    ship_targets[ship.id]].halite_amount < halite_threshold_start_collect:
                     logging.info("Early game, Ship {}'s target at {} seems to have depleted, reassigning target"
                                  .format(ship.id, ship_targets[ship.id]))
                     new_target = try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets,
@@ -596,8 +666,8 @@ while True:
                             continue
                     elif IS_LATE_GAME:
                         # to detect nearby collided points
-                        check_nearby = get_nearest_halite_cell_with_x(game_map, ship.position, {},  # need to be quick
-                                                                      STALLING_THRESHOLD_HARD, BIG_SEARCH_RADIUS)
+                        check_nearby = nearest_halite_cell_with_x(game_map, ship.position, {},  # need to be quick
+                                                                  STALLING_THRESHOLD_HARD, BIG_SEARCH_RADIUS)
                         if check_nearby:  # and check_nearby not in ship_targets.values():
                             ship_targets[ship.id] = check_nearby
                             continue
@@ -606,19 +676,10 @@ while True:
     # 1. Finding potential moves (has energy, will include blocked for resolution)
     # TODO: account for enemies!
     logging.info("#1 Finding all potential moves...")
-    ready_to_build_dropoff = False
+
     for ship in me.get_ships():
         if ship.id in command_dict:
             continue  # already assigned, e.g. stalling
-
-        if ship.id == ship_to_be_dropoff_id:
-            if ship_targets[ship.id] == ship.position:
-                ready_to_build_dropoff = True
-                logging.info("Ship {} standby at {} to build dropoff".format(ship.id, ship.position))
-                if ship.halite_amount + game_map[ship.position].halite_amount + me.halite_amount >= 4000:
-                    command_dict[ship.id] = ship.make_dropoff()
-                    building_dropoff_this_round = True
-                    logging.info("Ship {} will be converted to a dropoff at {}".format(ship.id, ship.position))
 
         if ship.id in ship_planned_moves and ship_planned_moves[ship.id]:
             logging.info('Ship {} has planned move: {}'.format(ship.id, ship_planned_moves[ship.id]))
@@ -663,10 +724,10 @@ while True:
                         ship_targets[ship.id] = p
 
         # Avoid crashing opponents in 4p
-        #if ship.halite_amount > 300:  # and is_4p:
-        #    logging.info("Before resolution/prediction, Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
-        #    possible_moves = [p for p in possible_moves if ship.position.directional_offset(p) not in opponents_predicted_targets.values()]
-        #    logging.info("{} has {} possible moves after accounting for enemy".format(ship.id, len(possible_moves)))
+        if ship.halite_amount > 300:  # and is_4p:
+           logging.info("Before resolution/prediction, Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
+           possible_moves = [p for p in possible_moves if ship.position.directional_offset(p) not in enemies_predicted_targets.values()]
+           logging.info("{} has {} possible moves after accounting for enemy".format(ship.id, len(possible_moves)))
 
         for m in possible_moves:
             p = ship.position.directional_offset(m)
@@ -690,7 +751,7 @@ while True:
                     register_move(ship, m, command_dict, game_map)
                     break
                 # TODO: fleeing if we have less ship, move sideways should work better?
-                #elif not is_4p and len(me.get_ships()) < len(opponents[1].get_ships()):
+                # elif not is_4p and len(me.get_ships()) < len(opponents[1].get_ships()):
                 #     logging.info("Ship {} is fleeing from enemy!")
                 #     inv_m = Direction.invert(m)
                 #     inv_p = ship.position.directional_offset(inv_m)
@@ -711,7 +772,8 @@ while True:
     # then by cells targeted by only one ship, (sort by number of ships)
     logging.info("#2 Resolving moves...")
     graph_ordered = OrderedDict(sorted(graph.items(), key=lambda x: (x[1][0].halite_amount, len(x[1][1]),
-                                       target_count[pos_to_hash_key(x[1][1][0][0] if len(x[1][1]) > 0 else None)])))
+                                                                     target_count[pos_to_hash_key(x[1][1][0][0] if len(
+                                                                         x[1][1]) > 0 else None)])))
     logging.info("graph_ordered dictionary {}".format(graph_ordered))
 
     for ship_id in graph_ordered:
@@ -724,13 +786,20 @@ while True:
     dropoff_cost = 0
     if building_dropoff_this_round:
         ship = game.me.get_ship(ship_to_be_dropoff_id)
-        dropoff_cost = 4000 - ship.halite_amount - game_map[ship.position].halite_amount
+        absorbed = ship.halite_amount + game_map[ship.position].halite_amount
+        dropoff_cost = 4000 - absorbed
+        logging.info("Building dropoff: absorbed {}".format(absorbed))
         ship_to_be_dropoff_id = None
 
     pause_ship_production = ship_to_be_dropoff_id and ready_to_build_dropoff
 
+    avg_rate = sum(halite_collection_rate) / (len(halite_collection_rate) + 1)  # just hacking div by 0 away
+    logging.info("Average H/turn by last 10 ships: {}".format(avg_rate))
+
+    # TODO: factor the rate of halite depletion into avg_rate reduction, not constant
+    # TODO: maybe try to use that in collection threshold and discount cost first
     tweaking_constant = 1 / .8E6
-    # if len(me.get_ships()) < enemy_ship_count + 5 and \
+    # if (game.turn_number < 200 or avg_rate * .5 * (MAX_TURN - game.turn_number) > 1000) and \
     if len(me.get_ships()) < remaining_halite * (MAX_TURN - game.turn_number) * tweaking_constant and \
             me.halite_amount - dropoff_cost >= constants.SHIP_COST and game.turn_number < MAX_TURN - SHIP_MAX_TURN and \
             not game_map[me.shipyard].is_occupied and not pause_ship_production:
