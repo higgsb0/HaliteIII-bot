@@ -602,7 +602,7 @@ while True:
                             ship_targets[ship.id] = nearby_target
                             new_target = nearest_halite_cell_with_x(game_map, swap_ship.position, ship_targets,
                                                                     halite_threshold_start_collect, search_radius)
-                            ship_targets[swap_ship] = new_target if new_target else targets.pop()
+                            ship_targets[swap_id] = new_target if new_target else targets.pop()
                         continue
 
                 if game_map[ship.position].halite_amount > halite_threshold_end_collect:
