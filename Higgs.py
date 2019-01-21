@@ -21,7 +21,7 @@ def get_path_halite_cost(start, end, game_map):
         # assume we also travel along the path with least halite
         curr = game_map.normalize(curr.directional_offset(moves[0]))
         moves = game_map.get_unsafe_moves(curr, end)
-    return cost
+    return cost * 1
 
 
 def get_df():
@@ -36,6 +36,30 @@ def get_df():
 
 def get_all_map_cells(game_map):
     return [game_map[Position(j, i)] for i in range(0, game_map.height) for j in range(0, game_map.width)]
+
+
+def get_halite_positions_by_path_cost(game_map, me, map_cells, halite_threshold, descending=False, extra=None):
+    full_coord = map_cells
+    # full_coord = [get_surrounding_cells(game_map, p, int(game_map.height/3)) for
+    #              p in get_dropoff_positions(me)]
+    # full_coord = [c for fcl in full_coord for c in fcl]
+    dropoffs = get_dropoff_positions(me)
+    for dropoff in dropoffs:
+        full_coord.remove(game_map[dropoff])
+
+    df = get_df()
+    full_coord.sort(key=lambda x: (x.halite_amount - halite_threshold - get_path_halite_cost(me.shipyard.position, x.position, game_map)) * df ** (2 * game_map.calculate_distance(
+        me.shipyard.position, x.position)), reverse=descending)
+
+    # TODO: linear isn't that bad
+    # full_coord.sort(key=lambda x: (x.halite_amount - halite_threshold - get_path_halite_cost(me.shipyard.position, x.position, game_map))/(2 * game_map.calculate_distance(me.shipyard.position, x.position)), reverse=descending)
+    # TODO: sigmoid
+    #full_coord.sort(key=lambda x: (x.halite_amount - halite_threshold - get_path_halite_cost(me.shipyard.position, x.position, game_map))/
+    #                              (game_map.calculate_distance(me.shipyard.position, x.position)**1.5), reverse=descending)
+    # TODO: need to add lower & upper bound if we want to optimise with current time value
+    # full_coord.sort(key=lambda x: x.halite_amount - halite_threshold/4 * 2 * game_map.calculate_distance(
+    #                get_nearest_dropoff(game_map, me, x.position), x.position), reverse=descending)
+    return [c.position for c in full_coord]  # popped
 
 
 def get_halite_cells(game_map, me, map_cells, halite_threshold, descending=False, extra=None):
@@ -80,13 +104,36 @@ def get_unextracted_halite(map_cells):
     return total
 
 
+def get_possible_paths(origin, target, game_map, path, out_possible_paths, length=3):
+    if len(path) == length:
+        out_possible_paths.append(path)
+    else:
+        moves = game_map.get_unsafe_moves(origin, target)
+        if moves:
+            for m in moves:
+                new_origin = game_map.normalize(origin.directional_offset(m))
+                new_path = path + [new_origin]
+                get_possible_paths(new_origin, target, game_map, new_path, out_possible_paths)
+        else:
+            # arrived at destination
+            out_possible_paths.append(path)
+            return
+
+
+def equivalent_move(origin, target, game_map):
+    return next((m for m in Direction.get_all_cardinals() if game_map.normalize(origin.directional_offset(m)) == target),
+                Direction.Still)
+
+
 def get_possible_moves(target, ship, game_map, me):
     # No need to normalize destination, since get_unsafe_moves does that
     if ship.halite_amount >= .1 * game_map[ship.position].halite_amount:
-        possible_moves = game_map.get_unsafe_moves(ship.position, target)
-        is_returning = pos_to_hash_key(target) in [pos_to_hash_key(x) for x in get_dropoff_positions(me)]
-        possible_moves.sort(key=lambda x: game_map[ship.position.directional_offset(x)].halite_amount)  # ,
-        # reverse=is_returning and ship.halite_amount < SHIP_HOLD_AMOUNT)
+        possible_paths = []
+        get_possible_paths(ship.position, target, game_map, [], possible_paths)
+        possible_paths.sort(key=lambda p: sum([game_map[pos].halite_amount for pos in p]))
+        possible_moves = [equivalent_move(ship.position, path[0], game_map) for path in possible_paths if path]
+        # possible_moves = game_map.get_unsafe_moves(ship.position, target)
+        # possible_moves.sort(key=lambda x: game_map[ship.position.directional_offset(x)].halite_amount)
         return possible_moves
     else:
         logging.info("Ship {} has not enough halite to move anywhere.".format(ship.id))
@@ -112,6 +159,7 @@ def halite_priority(amount):
         return -2
     if amount < 75:
         return -1
+
     elif amount < 150:
         return 0
     elif amount < 250:
@@ -145,9 +193,6 @@ def try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets, 
     new_targets.sort(key=lambda x: (halite_priority(x.halite_amount),
                                     1. / (game_map.calculate_distance(nearest_dropoff, x.position) + 1)),  # origin+1
                      reverse=True)
-    # TODO: shit at 4p
-    # new_targets.sort(key=lambda x: (abs(round_down(1000 - ship.halite_amount - x.halite_amount - min_halite)),
-    #                                (game_map.calculate_distance(nearest_dropoff, x.position) + 1)))
 
     new_target = next((t.position for t in new_targets if t.position not in ship_targets.values()), nearest_dropoff)
     logging.info('Ship {} finished at {}, moving to nearby target {}'
@@ -214,7 +259,7 @@ def execute_path(path, command_dict, game_map):
     for ship, move in zip(ships, moves):
         logging.info('{}{}'.format(ship, move))
         if ship:
-            new_pos = ship.position.directional_offset(move)
+            new_pos = game_map.normalize(ship.position.directional_offset(move))
             if ship.id not in command_dict:
                 logging.info("Ship {} will move {} to {}".format(ship.id, move, new_pos))
                 command_dict[ship.id] = ship.move(move)
@@ -224,7 +269,7 @@ def execute_path(path, command_dict, game_map):
                 logging.info("TEST: Ship {} will move {} to {}".format(ship.id, move, new_pos))
                 # assume we always want to minimise halite
                 original_move = command_to_direction(command_dict[ship.id].split(' ')[2])
-                original_target = ship.position.directional_offset(original_move)
+                original_target = game_map.normalize(ship.position.directional_offset(original_move))
                 logging.info("TEST: Ship {} was going to move {} to {}".format(ship.id, original_move, original_target))
                 if game_map[original_target].halite_amount > game_map[new_pos].halite_amount:
                     logging.info("OVERRIDING!")
@@ -249,7 +294,7 @@ def resolve_moves_recursive(path, ship_id, graph, command_dict, game_map):
 
     for t_pos, t_move in ship_plan.to:
         if game_map[t_pos].ship.id in command_dict:
-            return False  # path is being used next turn (rmb reg move will clear cell so should hit line 138)
+            return False  # path is being used next turn (rmb reg move will clear cell so should)
 
         if pos_to_hash_key(t_pos) in [pos_to_hash_key(p[0]) for p in path]:
             # encountered cycle, execute the cycle only, scrap the remaining chain
@@ -295,7 +340,7 @@ def predict_opponents_target(game_map, prev_pos, curr_pos):
             continue  # ship crashed
         prev = prev_pos[opponent_ship_id]
         curr = curr_pos[opponent_ship_id]
-        move = next((m for m in Direction.get_all_cardinals() if prev.directional_offset(m) == curr),
+        move = next((m for m in Direction.get_all_cardinals() if game_map.normalize(prev.directional_offset(m)) == curr),
                     Direction.Still)
         opponents_targets[opponent_ship_id] = game_map.normalize(curr.directional_offset(move))
 
@@ -379,13 +424,16 @@ def get_dropoff_candidate(game_map, me, is_4p):
     return candidate if max_amount > DROPOFF_HALITE_THRESHOLD else None
 
 
-def get_ship_remaining_turns(game_map, ship, halite_threshold):
+def get_ship_remaining_turns(me, game_map, ship, halite_threshold):
     # assuming it's already at target!
     available = game_map[ship.position].halite_amount
+    storage = ship.halite_amount
+    am_inspired = is_inspired(me, game_map, ship)
     turns = 0
-    while available > halite_threshold:
+    while available > halite_threshold and storage <= 1000:
         turns += 1
         available -= available * .25
+        storage += available * (.75 if am_inspired else .25)
     return turns
 
 
@@ -397,8 +445,24 @@ def get_enemy_ship_count(enemy_dict):
     return enemy_ship_count
 
 
+def enemy_within_distance(me, game_map, origin, distance):
+    cells = get_cells_within_distance(game_map, origin, distance)
+    enemies = [c for c in cells if c.ship and not me.has_ship(c.ship.id)]
+    return enemies
+
+
+def ally_within_distance(me, game_map, origin, distance):
+    cells = get_cells_within_distance(game_map, origin, distance)
+    allies = [c for c in cells if c.ship and me.has_ship(c.ship.id)]
+    return allies
+
+
 def update_ship_halite_amount(ships):
     return {ship.id: ship.halite_amount for ship in ships}
+
+
+def is_inspired(me, game_map, ship):
+    return len(enemy_within_distance(me, game_map, ship.position, 4)) >= 2
 
 
 mapsize_turn = {
@@ -421,7 +485,9 @@ enemies_ship_current_pos = {}
 enemies_predicted_targets = {}
 
 game = hlt.Game()
-MAX_TURN = mapsize_turn[game.game_map.height]
+game_map = game.game_map
+me = game.me
+MAX_TURN = mapsize_turn[game_map.height]
 
 game.ready("Higgs")
 logging.info('Bot: Higgs.')
@@ -436,12 +502,12 @@ IS_4P = len(game.players) == 4
 # SETTINGS
 TURNS_TO_RECALL = 3
 DROPOFF_HALITE_THRESHOLD = 3500
-DROPOFF_MIN_DISTANCE = int(game.game_map.height / (3.5 if IS_4P else 2.75))
+DROPOFF_MIN_DISTANCE = int(game_map.height / (3.5 if IS_4P else 2.75))
 DROPOFF_MIN_SHIP = {1: 20, 2: 35, 3: 50, 4: 60, 5: 70}
 DROPOFF_MAX_NO = 4  # not including shipyard
 DROPOFF_MAX_TURN = 250  # from final turn
 SHIP_MAX_TURN = 200  # from final turn
-SHIP_HOLD_AMOUNT = constants.MAX_HALITE * .9
+SHIP_HOLD_AMOUNT = constants.MAX_HALITE * (.75 if (IS_4P and game_map.height <= 48) else .9)
 STALLING_THRESHOLD_SOFT = 200  # stall one round
 STALLING_THRESHOLD_HARD = 300  # stall till cell has less than this
 HALITE_START_COLLECT_RATIO = .8  # as percentage of mean
@@ -450,6 +516,8 @@ NEARBY_SEARCH_RADIUS_EARLY = 2
 NEARBY_SEARCH_RADIUS_LATE = 4
 BIG_SEARCH_RADIUS = 6
 LATE_GAME_TURN = 350
+
+map_cells_cache = get_all_map_cells(game_map)  # cache
 
 while True:
     game.update_frame()
@@ -507,16 +575,17 @@ while True:
 
     # 0. Setting targets
     logging.info("#0 Setting targets...")
+    # TODO: if game.turn_number > 100:
     targets = [c.position for c in
                get_halite_cells(game.game_map, game.me, map_cells_cache, halite_threshold_end_collect,
                                 extra=hack_dropoff)
                if c.position not in ship_targets.values()]
 
     next_dropoff_candidate = None
-    if (len(me.get_dropoffs()) + 1 in DROPOFF_MIN_SHIP) and len(me.get_ships()) > DROPOFF_MIN_SHIP[
-        len(me.get_dropoffs()) + 1] and \
+    if not (IS_4P and game.game_map.height == 32) and len(me.get_dropoffs()) + 1 in DROPOFF_MIN_SHIP \
+            and len(me.get_ships()) > DROPOFF_MIN_SHIP[len(me.get_dropoffs()) + 1] and \
             game.turn_number < MAX_TURN - DROPOFF_MAX_TURN and \
-            len(me.get_dropoffs()) < remaining_halite / 12500 / (3.5 if IS_4P else 2) and ship_to_be_dropoff_id is None:
+            len(me.get_dropoffs()) < remaining_halite / 22500 / (3.5 if IS_4P else 2) and ship_to_be_dropoff_id is None:
         next_dropoff_candidate = get_dropoff_candidate(game_map, me, IS_4P)
         if next_dropoff_candidate:
             my_ships = sorted(me.get_ships(),
@@ -580,7 +649,8 @@ while True:
             # reached target position
             if ship.position in get_dropoff_positions(me):  # reached shipyard, assign new target
                 ship_targets[ship.id] = targets.pop()
-                ship_last_visit = ship_last_dropoff_turn[ship.id]
+                # TODO: not using it anyway..
+                ship_last_visit = ship_last_dropoff_turn[ship.id] if ship.id in ship_last_dropoff_turn else game.turn_number - 20
                 ship_last_dropoff_turn[ship.id] = game.turn_number
                 if halite_collection_rate.maxlen <= len(halite_collection_rate):
                     halite_collection_rate.popleft()
@@ -604,6 +674,9 @@ while True:
                                                                     halite_threshold_start_collect, search_radius)
                             ship_targets[swap_id] = new_target if new_target else targets.pop()
                         continue
+                    else:
+                        ship_targets[ship.id] = nearby_target
+                        continue
 
                 if game_map[ship.position].halite_amount > halite_threshold_end_collect:
                     register_move(ship, Direction.Still, command_dict, game_map)
@@ -613,9 +686,8 @@ while True:
                     ship_targets[ship.id] = targets.pop() if new_target is None else new_target
                 elif ship.halite_amount < SHIP_HOLD_AMOUNT:  # and game.turn_number > EARLY_GAME_TURN:
                     new_target = nearest_halite_cell_with_x(game_map, ship.position, ship_targets,
-                                                            halite_threshold_start_collect, search_radius) \
-                        if IS_LATE_GAME else try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets,
-                                                                          halite_threshold_start_collect, search_radius)
+                                                            halite_threshold_start_collect, search_radius)
+
                     ship_targets[ship.id] = targets.pop() if new_target is None else new_target
                 else:
                     ship_targets[ship.id] = nearest_dropoff
@@ -635,14 +707,14 @@ while True:
                         else:
                             del stalling_ships[ship.id]
                             continue
-                elif not IS_LATE_GAME and game_map[
+                elif game_map[
                     ship_targets[ship.id]].halite_amount < halite_threshold_start_collect:
                     logging.info("Early game, Ship {}'s target at {} seems to have depleted, reassigning target"
                                  .format(ship.id, ship_targets[ship.id]))
                     new_target = try_get_halite_target_nearby(game_map, ship, nearest_dropoff, ship_targets,
                                                               halite_threshold_start_collect, BIG_SEARCH_RADIUS)
                     ship_targets[ship.id] = targets.pop() if new_target is None else new_target
-                elif not IS_LATE_GAME and game_map[ship_targets[ship.id]].halite_amount < 1500 and \
+                elif game_map[ship_targets[ship.id]].halite_amount < 1500 and \
                         (game_map[ship_targets[ship.id]].is_occupied and not me.has_ship(
                             game_map[ship_targets[ship.id]].ship.id)):
                     logging.info("Early game, Ship {}'s target at {} is occupied by opponents, reassigning target"
@@ -666,11 +738,23 @@ while True:
                             continue
                     elif IS_LATE_GAME:
                         # to detect nearby collided points
-                        check_nearby = nearest_halite_cell_with_x(game_map, ship.position, {},  # need to be quick
-                                                                  STALLING_THRESHOLD_HARD, BIG_SEARCH_RADIUS)
-                        if check_nearby:  # and check_nearby not in ship_targets.values():
-                            ship_targets[ship.id] = check_nearby
-                            continue
+                        nearby_target = nearest_halite_cell_with_x(game_map, ship.position, {},  # need to be quick
+                                                                   STALLING_THRESHOLD_HARD, BIG_SEARCH_RADIUS)
+                        if nearby_target:
+                            if nearby_target in ship_targets.values():
+                                # TODO: this is a swap targets function.
+                                swap_id = [key for key, value in ship_targets.items() if value == nearby_target][0]
+                                swap_ship = me.get_ship(swap_id)
+                                if game_map.calculate_distance(nearby_target, ship.position) < \
+                                        game_map.calculate_distance(nearby_target, swap_ship.position):
+                                    # swap targets
+                                    ship_targets[ship.id] = nearby_target
+                                    new_target = nearest_halite_cell_with_x(game_map, swap_ship.position, ship_targets,
+                                                                            halite_threshold_start_collect, search_radius)
+                                    ship_targets[swap_id] = new_target if new_target else targets.pop()
+                            else:
+                                ship_targets[ship.id] = nearby_target
+
         logging.info("Ship {} at {} has target {} ".format(ship.id, ship.position, ship_targets[ship.id]))
 
     # 1. Finding potential moves (has energy, will include blocked for resolution)
@@ -680,6 +764,9 @@ while True:
     for ship in me.get_ships():
         if ship.id in command_dict:
             continue  # already assigned, e.g. stalling
+
+        enemies = enemy_within_distance(me, game_map, ship.position, 2)
+        allies = ally_within_distance(me, game_map, ship.position, 2)
 
         if ship.id in ship_planned_moves and ship_planned_moves[ship.id]:
             logging.info('Ship {} has planned move: {}'.format(ship.id, ship_planned_moves[ship.id]))
@@ -698,9 +785,9 @@ while True:
 
             if len(possible_moves) == 1:
                 blocked_move = possible_moves[0]
-                p = ship.position.directional_offset(blocked_move)
+                p = game_map.normalize(ship.position.directional_offset(blocked_move))
                 # try move sideways if the only possible move is blocked by enemy, or a ship staying more than one turn
-                if game_map[p].is_occupied:
+                if game_map[p].is_occupied: # and ship.halite_amount > 300:
                     if not me.has_ship(game_map[p].ship.id):
                         side_moves = [d for d in Direction.get_all_cardinals()
                                       if d not in possible_moves
@@ -715,7 +802,7 @@ while True:
                                 possible_moves = [s]
                                 break
                     elif p == ship_targets[game_map[p].ship.id] and not IS_LATE_GAME and get_ship_remaining_turns(
-                            game_map, game_map[p].ship, halite_threshold_end_collect) > 1:
+                            me, game_map, game_map[p].ship, halite_threshold_end_collect) > 1:
                         # blocked by own ship, swap targets
                         logging.info('Ship {} is blocked by {} so they are swapping targets'.
                                      format(ship.id, game_map[p].ship.id))
@@ -724,28 +811,30 @@ while True:
                         ship_targets[ship.id] = p
 
         # Avoid crashing opponents in 4p
-        if ship.halite_amount > 300:  # and is_4p:
-           logging.info("Before resolution/prediction, Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
-           possible_moves = [p for p in possible_moves if ship.position.directional_offset(p) not in enemies_predicted_targets.values()]
-           logging.info("{} has {} possible moves after accounting for enemy".format(ship.id, len(possible_moves)))
+        if ship.halite_amount > 300 or len(enemies) > len(allies):  # and is_4p:
+            logging.info("Before resolution/prediction, Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
+            possible_moves = [p for p in possible_moves if game_map.normalize(ship.position.directional_offset(p))
+                              not in enemies_predicted_targets.values()]
+            logging.info("{} has {} possible moves after accounting for enemy".format(ship.id, len(possible_moves)))
 
         for m in possible_moves:
-            p = ship.position.directional_offset(m)
+            p = game_map.normalize(ship.position.directional_offset(m))
 
             if not game_map[p].is_occupied:
-                logging.info("Ship {} can FREELY go {} to {}".format(ship.id, m, ship.position.directional_offset(m)))
+                logging.info("Ship {} can FREELY go {} to {}".format(ship.id, m, p))
                 continue
             elif me.has_ship(game_map[p].ship.id):
                 # one of our own ships that can be resolved
                 target_count[pos_to_hash_key(p)] += 1
-                logging.info("Ship {} can go {} to {}".format(ship.id, m, ship.position.directional_offset(m)))
+                logging.info("Ship {} can go {} to {}".format(ship.id, m, p))
             else:
                 # enemy ship
                 dropoff_areas = [get_surrounding_cells(game_map, dropoff, 2) for dropoff in get_dropoff_positions(me)]
                 enemy_halite_amount = game_map[p].ship.halite_amount + game_map[p].halite_amount
                 our_halite_amount = ship.halite_amount + game_map[ship.position].halite_amount
                 if (not IS_4P and enemy_halite_amount > our_halite_amount) \
-                        or p in [cell.position for dropoff_area in dropoff_areas for cell in dropoff_area]:
+                        or p in [cell.position for dropoff_area in dropoff_areas for cell in dropoff_area]\
+                        or (not IS_4P and len(enemies) < len(allies)):
                     # (try to) crash enemy ship if it has more halite than us or occupying our shipyard
                     logging.info("Ship {} has found an enemy ship to crash!")
                     register_move(ship, m, command_dict, game_map)
@@ -762,7 +851,7 @@ while True:
                 #     break
 
         if ship.id not in command_dict:  # not assigned yet
-            pos_and_moves = [(ship.position.directional_offset(m), m) for m in possible_moves
+            pos_and_moves = [(game_map.normalize(ship.position.directional_offset(m)), m) for m in possible_moves
                              if not game_map[ship.position.directional_offset(m)].is_occupied or me.has_ship(
                     game_map[ship.position.directional_offset(m)].ship.id)]  # filter out enemy ships
             logging.info("Ship {} has {} possible moves".format(ship.id, len(possible_moves)))
